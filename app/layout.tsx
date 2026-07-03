@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Sidebar from "@/components/Sidebar";
+import PlayerBar from "@/components/PlayerBar";
+import { PlaybackProvider } from "@/context/PlayerContext";
 
 export const metadata: Metadata = {
   title: "Crate Digger | Spotify Client",
@@ -19,8 +22,16 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="flex flex-col h-screen overflow-hidden bg-black text-white">
-        {children}
+      <body className="flex flex-col h-screen overflow-hidden bg-black text-white select-none">
+        <PlaybackProvider>
+          <div className="flex flex-1 overflow-hidden p-2 gap-2">
+            <Sidebar />
+            <main className="flex-1 bg-surface rounded-lg overflow-y-auto custom-scrollbar relative flex flex-col">
+              {children}
+            </main>
+          </div>
+          <PlayerBar />
+        </PlaybackProvider>
       </body>
     </html>
   );
