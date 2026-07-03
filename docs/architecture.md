@@ -4,9 +4,10 @@
 ## 1. API Contracts
 - Frontend calls `/api/curate` with `POST { prompt: string }`.
 - Backend uses `Client Credentials Flow` for Spotify API (Base64 encode ClientID:ClientSecret).
-- Backend calls Groq API (`llama3-8b-8192`) with `response_format: { type: "json_object" }`.
-- Groq System Prompt MUST enforce this output: `{ "search_query": "string", "exclude_keywords": ["string"] }`.
-- Spotify Search Endpoint: `https://api.spotify.com/v1/search?q={search_query}&type=track&limit=20`
+- Backend calls Groq API (`llama-3.1-8b-instant`) with `response_format: { type: "json_object" }`.
+- Groq System Prompt MUST translate the user prompt into Spotify features: `{ "seed_genres": "string", "target_energy": number, "target_valence": number, "target_danceability": number, "exclude_keywords": ["string"] }`.
+- Spotify Recommendations Endpoint: `https://api.spotify.com/v1/recommendations?limit=15&seed_genres={seed_genres}&target_energy={target_energy}&target_valence={target_valence}&target_danceability={target_danceability}`
+- Because Spotify currently marks Recommendations as deprecated and this environment returns 404 for it, the backend MUST gracefully fall back to semantic Spotify Search queries derived from the validated agent output.
 
 ## 2. The Logic Filter (Crucial)
 - The backend MUST filter the Spotify tracks. If a track's `name` or `artists[0].name` contains ANY word from `exclude_keywords` (case-insensitive), drop it.

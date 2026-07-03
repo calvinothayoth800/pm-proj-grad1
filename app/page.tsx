@@ -90,9 +90,13 @@ export default function Home() {
       } else {
         throw new Error("No tracks found matching this vibe. Try adjusting constraints.");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err.message || "An unexpected error occurred. Please try again.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An unexpected error occurred. Please try again."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -147,7 +151,7 @@ export default function Home() {
           <h1 className="text-3xl font-extrabold tracking-tight">Crate Digger AI</h1>
         </div>
         <div className="w-full">
-          <h2 className="text-4xl sm:text-5xl font-black mb-6 select-none tracking-tight">What's the vibe?</h2>
+          <h2 className="text-4xl sm:text-5xl font-black mb-6 select-none tracking-tight">What&apos;s the vibe?</h2>
           <div className="flex flex-col md:flex-row gap-4 items-stretch mb-4">
             <textarea
               value={prompt}

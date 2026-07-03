@@ -4,7 +4,7 @@
 
 ## Core Flow
 1. User enters a natural language prompt with negative constraints (e.g., "90s goth rock, NO mainstream pop").
-2. Backend passes prompt to Groq. Groq returns JSON with `search_query` and `exclude_keywords`.
-3. Backend fetches Spotify Search API using the `search_query`.
+2. Backend passes prompt to Groq. Groq returns JSON with `seed_genres`, `target_energy`, `target_valence`, `target_danceability`, and `exclude_keywords`.
+3. Backend fetches Spotify Recommendations API using the generated parameters.
 4. Backend filters out any Spotify results containing `exclude_keywords`.
 5. Frontend renders top 5 surviving tracks using Spotify Embed iframes.
