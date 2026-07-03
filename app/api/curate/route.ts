@@ -42,7 +42,14 @@ async function getSpotifyToken(): Promise<string> {
   return cachedToken as string;
 }
 
-async function getGroqSearchTerms(prompt: string) {
+interface AgentOutput {
+  genres: string[];
+  artists: string[];
+  search_queries: string[];
+  exclude_keywords: string[];
+}
+
+async function getGroqCurationAgent(prompt: string): Promise<AgentOutput> {
   const groqApiKey = (process.env.GROQ_API_KEY || "").trim();
   if (!groqApiKey) {
     throw new Error("Missing Groq API Key in environment variables");
@@ -60,10 +67,15 @@ async function getGroqSearchTerms(prompt: string) {
         messages: [
           {
             role: "system",
-            content: `You are a Spotify curation assistant. Analyze the user prompt and extract:
-1. "search_query": a single string optimized for Spotify search API (e.g., genre, mood, instruments, or styles).
-2. "exclude_keywords": a list of keywords to filter out (e.g., specific subgenres, mood words, or artists that the user explicitly wants to avoid).
-Your response must be in JSON format: { "search_query": "string", "exclude_keywords": ["string"] }. Do not include any other text, conversational elements, or explanation.`
+            content: `You are an expert Music Curator Agent. Analyze the user prompt representing a musical vibe, mood, or context. Expand this prompt into structured Spotify search criteria to fetch high-quality, recognizable songs by real artists.
+Your response must be in JSON format:
+{
+  "genres": ["list of 2-3 Spotify genres matching the vibe, e.g. 'synthwave', 'indie-folk', 'shoegaze', 'techno'"],
+  "artists": ["list of 4-5 real, well-known, high-quality music artists that embody this vibe, e.g. 'The Midnight', 'Bon Iver', 'Kavinsky', 'Depeche Mode'"],
+  "search_queries": ["list of 2-3 specific phrases or styles to query, e.g. 'neon cruise', 'ambient dream'"],
+  "exclude_keywords": ["list of 3-4 keywords or styles to filter out, e.g. 'karaoke', 'tribute', 'cover', 'relaxing lofi'"]
+}
+Do not include any other text, conversational elements, or markdown blocks (like \`\`\`json). Just the raw JSON.`
           },
           {
             role: "user",
@@ -71,7 +83,7 @@ Your response must be in JSON format: { "search_query": "string", "exclude_keywo
           }
         ],
         response_format: { type: "json_object" },
-        temperature: 0
+        temperature: 0.1
       })
     });
 
@@ -82,29 +94,26 @@ Your response must be in JSON format: { "search_query": "string", "exclude_keywo
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content || "";
     const parsed = JSON.parse(content);
-    
-    if (typeof parsed.search_query === "string" && Array.isArray(parsed.exclude_keywords)) {
-      return {
-        search_query: parsed.search_query,
-        exclude_keywords: parsed.exclude_keywords
-      };
-    }
-    throw new Error("Invalid JSON structure returned from Groq API");
-  } catch (err) {
-    console.error("Groq integration failed, triggering fallback:", err);
-    // Fallback rule from architecture.md and edge_cases.md:
-    // If Groq fails, fallback to: search_query: prompt.substring(0, 20), exclude_keywords: []
-    // If prompt is empty or short, fallback to "lofi chill"
-    const fallbackQuery = prompt ? prompt.substring(0, 20).trim() : "lofi chill";
+
     return {
-      search_query: fallbackQuery || "lofi chill",
+      genres: Array.isArray(parsed.genres) ? parsed.genres : [],
+      artists: Array.isArray(parsed.artists) ? parsed.artists : [],
+      search_queries: Array.isArray(parsed.search_queries) ? parsed.search_queries : [],
+      exclude_keywords: Array.isArray(parsed.exclude_keywords) ? parsed.exclude_keywords : []
+    };
+  } catch (err) {
+    console.error("Groq agent curation failed, triggering fallback:", err);
+    return {
+      genres: [],
+      artists: [],
+      search_queries: [prompt.substring(0, 20).trim() || "lofi chill"],
       exclude_keywords: []
     };
   }
 }
 
 async function searchSpotify(searchQuery: string, token: string) {
-  const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=5`;
+  const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=10`;
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -128,67 +137,146 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    // 1. Get query & exclusion parameters using Groq
-    const { search_query, exclude_keywords } = await getGroqSearchTerms(prompt);
+    // 1. Invoke the Groq Curation Agent to expand the prompt semantically
+    const agentConfig = await getGroqCurationAgent(prompt);
 
-    // 2. Fetch Spotify token & perform search
+    // 2. Fetch Spotify token & execute search queries in parallel
     let token = await getSpotifyToken();
-    let searchResult;
-    try {
-      searchResult = await searchSpotify(search_query, token);
-    } catch (err: any) {
-      if (err.message.includes("expired or invalid")) {
-        // Force refresh cached token and retry once
-        cachedToken = null;
-        token = await getSpotifyToken();
-        searchResult = await searchSpotify(search_query, token);
-      } else {
-        throw err;
+    const searchPromises: Promise<any>[] = [];
+
+    // A. Query standard phrases
+    agentConfig.search_queries.forEach((q) => {
+      searchPromises.push(
+        fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=8`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .catch(() => null)
+      );
+    });
+
+    // B. Query targeted artists
+    agentConfig.artists.forEach((artist) => {
+      searchPromises.push(
+        fetch(`https://api.spotify.com/v1/search?q=artist:%22${encodeURIComponent(artist)}%22&type=track&limit=5`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .catch(() => null)
+      );
+    });
+
+    // C. Query targeted genres
+    agentConfig.genres.forEach((genre) => {
+      searchPromises.push(
+        fetch(`https://api.spotify.com/v1/search?q=genre:%22${encodeURIComponent(genre)}%22&type=track&limit=5`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .catch(() => null)
+      );
+    });
+
+    // Wait for all searches to settle
+    const results = await Promise.all(searchPromises);
+
+    // Flatten all items
+    const allTracks: any[] = [];
+    results.forEach((res) => {
+      if (res && res.tracks && res.tracks.items) {
+        allTracks.push(...res.tracks.items);
+      }
+    });
+
+    // 3. Deduplicate tracks by Spotify ID
+    const seenIds = new Set<string>();
+    const uniqueTracks: any[] = [];
+    for (const track of allTracks) {
+      if (track && track.id && !seenIds.has(track.id)) {
+        seenIds.add(track.id);
+        uniqueTracks.push(track);
       }
     }
 
-    const items = searchResult.tracks?.items || [];
-
-    // Helper mapper to return standardized track structure: { id, name, artist, url, imageUrl, previewUrl }
+    // Standard mapping helper
     const mapTrack = (track: any) => ({
       id: track.id,
-      name: track.name,
+      name: track.name || "Unknown Track",
       artist: track.artists?.[0]?.name || "Unknown Artist",
       url: track.external_urls?.spotify || "",
       imageUrl: track.album?.images?.[0]?.url || "",
-      previewUrl: track.preview_url || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+      previewUrl: track.preview_url || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+      popularity: track.popularity || 0
     });
 
-    // 3. Filter tracks based on case-insensitive exclusion list
-    const filteredTracks = items.filter((track: any) => {
-      const trackName = (track.name || "").toLowerCase();
-      const artistName = (track.artists?.[0]?.name || "").toLowerCase();
+    // Lists of filler keywords in artist name to prevent generic royalty-free tracks
+    const spamArtistsKeywords = [
+      "lofi generator", "concentration music", "relaxation", "sleeping music", "relaxing",
+      "nature sounds", "background", "study beats", "rain sounds", "binaural beats",
+      "white noise", "binaural", "sleep", "meditation", "music for sleep", "soundscape",
+      "ambience", "study aid", "calm focus", "binaural beats", "frequency generators"
+    ];
 
-      return !exclude_keywords.some((keyword: string) => {
+    // 4. Perform exclusion filters and spam filtering
+    const mappedTracks = uniqueTracks.map(mapTrack);
+    const filteredTracks = mappedTracks.filter((track) => {
+      const trackNameLower = track.name.toLowerCase();
+      const artistLower = track.artist.toLowerCase();
+
+      // A. Check user's exclude_keywords
+      const matchesExclusion = agentConfig.exclude_keywords.some((keyword) => {
         const cleanKw = keyword.trim().toLowerCase();
         if (!cleanKw) return false;
-        return trackName.includes(cleanKw) || artistName.includes(cleanKw);
+        return trackNameLower.includes(cleanKw) || artistLower.includes(cleanKw);
       });
+      if (matchesExclusion) return false;
+
+      // B. Check spam artist words to block royalty-free channels
+      const isSpamArtist = spamArtistsKeywords.some((word) => artistLower.includes(word));
+      if (isSpamArtist) return false;
+
+      return true;
     });
 
-    // 4. Handle over-filtering edge case: if 0 tracks survived, return top 3 unfiltered
-    if (filteredTracks.length === 0) {
-      const top3Unfiltered = items.slice(0, 3).map(mapTrack);
+    // 5. Popularity Threshold Filtering (keeps proper songs)
+    // Enforce popularity >= 15 to drop filler instrumental tracks
+    let highQualityTracks = filteredTracks.filter((t) => t.popularity >= 15);
+    let warningTriggered = false;
+
+    if (highQualityTracks.length < 3) {
+      // Relax popularity rule slightly
+      highQualityTracks = filteredTracks.filter((t) => t.popularity >= 5);
+    }
+    if (highQualityTracks.length < 3) {
+      // Fallback to all filtered tracks
+      highQualityTracks = filteredTracks;
+      warningTriggered = true;
+    }
+
+    // 6. Sort by popularity descending to prioritize famous/proper tracks
+    highQualityTracks.sort((a, b) => b.popularity - a.popularity);
+
+    // Slice top 8 tracks for the playlist
+    const topTracks = highQualityTracks.slice(0, 8);
+
+    // Fallback if everything is filtered out
+    if (topTracks.length === 0) {
+      console.warn("Curation agent filtered out all results, running fallback search");
+      const fallbackResult = await searchSpotify(prompt.substring(0, 20) || "lofi chill", token);
+      const fallbackItems = (fallbackResult.tracks?.items || []).map(mapTrack);
       return NextResponse.json({
-        tracks: top3Unfiltered,
+        tracks: fallbackItems.slice(0, 5),
         warning: true,
-        searchQuery: search_query,
-        excludeKeywords: exclude_keywords
+        searchQuery: prompt,
+        excludeKeywords: []
       });
     }
 
-    // Otherwise, return top 5 surviving tracks
-    const top5Surviving = filteredTracks.slice(0, 5).map(mapTrack);
     return NextResponse.json({
-      tracks: top5Surviving,
-      warning: false,
-      searchQuery: search_query,
-      excludeKeywords: exclude_keywords
+      tracks: topTracks,
+      warning: warningTriggered,
+      searchQuery: agentConfig.search_queries.join(", "),
+      excludeKeywords: agentConfig.exclude_keywords
     });
 
   } catch (error: any) {
