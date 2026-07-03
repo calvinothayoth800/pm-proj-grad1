@@ -54,7 +54,7 @@ async function getGroqSearchTerms(prompt: string) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama3-8b-8192",
+        model: "llama-3.1-8b-instant",
         messages: [
           {
             role: "system",
@@ -102,7 +102,7 @@ Your response must be in JSON format: { "search_query": "string", "exclude_keywo
 }
 
 async function searchSpotify(searchQuery: string, token: string) {
-  const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=20`;
+  const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=5`;
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
