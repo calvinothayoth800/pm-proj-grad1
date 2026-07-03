@@ -10,8 +10,8 @@ async function getSpotifyToken(): Promise<string> {
     return cachedToken as string;
   }
 
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  const clientId = (process.env.SPOTIFY_CLIENT_ID || "").trim();
+  const clientSecret = (process.env.SPOTIFY_CLIENT_SECRET || "").trim();
   if (!clientId || !clientSecret) {
     throw new Error("Missing Spotify credentials in environment variables");
   }
@@ -41,7 +41,7 @@ async function getSpotifyToken(): Promise<string> {
 }
 
 async function getGroqSearchTerms(prompt: string) {
-  const groqApiKey = process.env.GROQ_API_KEY;
+  const groqApiKey = (process.env.GROQ_API_KEY || "").trim();
   if (!groqApiKey) {
     throw new Error("Missing Groq API Key in environment variables");
   }

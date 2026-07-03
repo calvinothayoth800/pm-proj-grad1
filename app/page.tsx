@@ -431,76 +431,66 @@ export default function Home() {
             <span className="material-symbols-outlined text-primary text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>album</span>
             <h1 className="text-3xl font-extrabold tracking-tight">Crate Digger AI</h1>
           </div>
-          <div className="flex flex-col lg:flex-row gap-6 items-stretch w-full">
-            <div className="flex-1 max-w-3xl">
-              <h2 className="text-5xl font-black mb-6">What's the vibe?</h2>
-              <div className="relative">
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
+          <div className="w-full">
+            <h2 className="text-5xl font-black mb-6">What's the vibe?</h2>
+            <div className="relative flex flex-col gap-4">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                disabled={isLoading}
+                className="w-full min-h-[140px] bg-[#2a2a2a] border-none rounded-lg p-6 text-lg focus:ring-0 placeholder:text-zinc-500 resize-none focus:outline-none"
+                placeholder="Describe the mood, instruments, or energy you're looking for... (e.g., 'Late night driving through a neon city')"
+              ></textarea>
+              
+              {/* Explore Option Chips right below textarea */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-xs text-on-surface-variant font-medium flex items-center gap-1.5 mr-1 select-none">
+                  <span className="material-symbols-outlined text-sm text-primary">explore</span> Explore:
+                </span>
+                {[
+                  "Late night driving through a neon city",
+                  "Chill lofi hip-hop beats for coding",
+                  "Energetic dance music for working out",
+                  "Warm acoustic folk for a rainy morning",
+                  "Heavy dark industrial techno beats",
+                  "Spacious ambient soundscapes for study"
+                ].map((vibe) => (
+                  <button 
+                    key={vibe} 
+                    onClick={() => setPrompt(vibe)}
+                    className="px-3 py-1.5 bg-[#2a2a2a] hover:bg-[#3e3e3e] active:scale-95 text-xs font-semibold text-white rounded-full transition-all border border-zinc-800 hover:border-zinc-700 select-none text-left"
+                    title={`Autofill: "${vibe}"`}
+                  >
+                    {vibe}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex justify-end gap-3 mt-2">
+                <button
+                  onClick={handleClear}
                   disabled={isLoading}
-                  className="w-full min-h-[140px] bg-[#2a2a2a] border-none rounded-lg p-6 text-lg focus:ring-0 placeholder:text-zinc-500 resize-none mb-4 focus:outline-none"
-                  placeholder="Describe the mood, instruments, or energy you're looking for... (e.g., 'Late night driving through a neon city')"
-                ></textarea>
-                <div className="flex justify-end gap-3">
-                  <button
-                    onClick={handleClear}
-                    disabled={isLoading}
-                    className="bg-transparent hover:bg-white/10 text-white font-bold px-6 py-3 rounded-full transition-all text-sm uppercase tracking-wider disabled:opacity-50"
-                  >
-                    Clear
-                  </button>
-                  <button
-                    onClick={handleCurate}
-                    disabled={isLoading || !prompt.trim()}
-                    className="bg-primary hover:bg-[#1ed760] disabled:bg-primary/50 text-black font-bold px-8 py-3 rounded-full transition-all text-sm uppercase tracking-wider shadow-xl flex items-center gap-2"
-                  >
-                    {isLoading ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-                        Curating...
-                      </>
-                    ) : (
-                      <>
-                        <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
-                        Curate My Vibe
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            {/* Explore Vibes Sidecard */}
-            <div className="lg:w-[350px] bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col justify-between hover:border-white/15 transition-colors">
-              <div>
-                <h4 className="text-base font-bold mb-2 flex items-center gap-2 text-primary">
-                  <span className="material-symbols-outlined text-lg">explore</span> Explore Vibes
-                </h4>
-                <p className="text-xs text-on-surface-variant mb-4">Click a trending vibe tag to populate the curator input box automatically:</p>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    "Late night driving through a neon city",
-                    "Chill lofi hip-hop beats for coding",
-                    "Energetic dance music for working out",
-                    "Warm acoustic folk for a rainy morning",
-                    "Heavy dark industrial techno beats",
-                    "Spacious ambient soundscapes for study"
-                  ].map((vibe) => (
-                    <button 
-                      key={vibe} 
-                      onClick={() => setPrompt(vibe)}
-                      className="px-2.5 py-1.5 bg-[#2a2a2a] hover:bg-[#3e3e3e] active:scale-95 text-[11px] font-semibold text-white rounded-full transition-all border border-zinc-800 hover:border-zinc-700 select-none text-left"
-                      title={`Autofill: "${vibe}"`}
-                    >
-                      {vibe}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="pt-4 mt-4 border-t border-white/5 flex items-center gap-3">
-                <span className="material-symbols-outlined text-primary text-sm">info</span>
-                <span className="text-[10px] text-on-surface-variant leading-relaxed">Crate Digger AI runs real-time semantic queries against Spotify's API to fetch personalized music vibes.</span>
+                  className="bg-transparent hover:bg-white/10 text-white font-bold px-6 py-3 rounded-full transition-all text-sm uppercase tracking-wider disabled:opacity-50"
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={handleCurate}
+                  disabled={isLoading || !prompt.trim()}
+                  className="bg-primary hover:bg-[#1ed760] disabled:bg-primary/50 text-black font-bold px-8 py-3 rounded-full transition-all text-sm uppercase tracking-wider shadow-xl flex items-center gap-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                      Curating...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
+                      Curate My Vibe
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>
