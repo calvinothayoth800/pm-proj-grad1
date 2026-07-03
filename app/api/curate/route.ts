@@ -451,9 +451,10 @@ async function getSpotifyToken(): Promise<string> {
     throw new Error("Spotify did not return an access token");
   }
 
-  cachedToken = data.access_token;
+  const accessToken = String(data.access_token);
+  cachedToken = accessToken;
   tokenExpiresAt = now + Math.max(0, data.expires_in - 60) * 1000;
-  return cachedToken;
+  return accessToken;
 }
 
 async function getGroqCurationAgent(prompt: string): Promise<AgentOutput> {
