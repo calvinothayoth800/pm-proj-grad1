@@ -149,10 +149,10 @@ export default function Home() {
             <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"><span className="material-symbols-outlined text-white">chevron_left</span></button>
             <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center opacity-50"><span className="material-symbols-outlined text-white">chevron_right</span></button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
             <button className="bg-white text-black px-4 py-1.5 rounded-full text-sm font-bold hover:scale-105 transition-transform">Explore Premium</button>
-            <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"><span className="material-symbols-outlined text-white">notifications</span></button>
-            <button className="w-8 h-8 rounded-full bg-black/40 p-1 flex items-center justify-center">
+            <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"><span className="material-symbols-outlined text-white text-[20px]">notifications</span></button>
+            <button className="w-8 h-8 rounded-full bg-black/40 p-1 flex items-center justify-center hover:bg-black/60 transition-colors">
               <div className="w-full h-full rounded-full bg-zinc-600"></div>
             </button>
           </div>
@@ -202,52 +202,54 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
 
-        {/* Results Section */}
-        <section className="px-6 pb-20">
-          <div className="flex items-center justify-between mt-8 mb-4">
-            <h3 className="text-2xl font-bold hover:underline cursor-pointer">Curated for your vibe</h3>
-            <span className="text-sm font-bold text-on-surface-variant hover:underline cursor-pointer">Show all</span>
-          </div>
-
-          {/* Error Banner */}
-          {error && (
-            <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-sm flex items-center gap-3">
-              <span className="material-symbols-outlined text-rose-400">error</span>
-              <span>{error}</span>
+          {/* Results Grid / Loaders */}
+          <div className="mt-8 flex-1 min-h-0">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-2xl font-bold">Curated for your vibe</h3>
+              {results.length > 0 && (
+                <button className="text-on-surface-variant hover:text-white text-sm font-bold transition-colors">Show all</button>
+              )}
             </div>
-          )}
 
-          {/* Over-filtering Warning Banner */}
-          {warning && (
-            <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-400 text-sm flex items-center gap-3">
-              <span className="material-symbols-outlined text-amber-400">warning</span>
-              <span>No tracks matched your criteria after exclusion filtering. Showing top unfiltered tracks instead.</span>
-            </div>
-          )}
-
-          {/* Spotify Style Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-            
-            {/* Case 1: Loading State - Show 5 pulses */}
-            {isLoading && (
-              <>
-                {[1, 2, 3, 4, 5].map((idx) => (
-                  <div key={idx} className="spotify-card p-4 rounded-lg group cursor-pointer relative animate-pulse">
-                    <div className="aspect-square bg-zinc-800/50 rounded-md mb-4"></div>
-                    <div className="h-4 bg-zinc-800/50 rounded w-3/4 mb-2"></div>
-                    <div className="h-3 bg-zinc-800/50 rounded w-1/2"></div>
-                  </div>
-                ))}
-              </>
+            {/* Error Message */}
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-200 p-4 rounded-lg mb-6 flex items-center gap-3">
+                <span className="material-symbols-outlined text-red-500">error</span>
+                <p className="text-sm font-medium">{error}</p>
+              </div>
             )}
 
-            {/* Case 2: Curated tracks are returned - Render Spotify Embed Iframes */}
+            {/* Warning Message (Fallback triggered) */}
+            {warning && (
+              <div className="bg-[#e9b308]/10 border border-[#e9b308]/30 text-[#fde047] p-4 rounded-lg mb-6 flex items-center gap-3">
+                <span className="material-symbols-outlined text-[#e9b308]">warning</span>
+                <p className="text-sm font-medium">Over-filtering fallback triggered: returned top tracks directly as all matching options were excluded by search parameters.</p>
+              </div>
+            )}
+
+            {/* Case 1: Loading state */}
+            {isLoading && (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                {/* Skeletion Loaders */}
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="spotify-card p-4 rounded-lg animate-pulse">
+                    <div className="aspect-square bg-zinc-800 rounded-md mb-4"></div>
+                    <div className="h-4 bg-zinc-800 rounded w-3/4 mb-2"></div>
+                    <div className="h-3 bg-zinc-800 rounded w-1/2"></div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Case 2: Curated tracks returned */}
             {!isLoading && results.length > 0 && (
-              <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-28">
                 {results.map((track) => (
-                  <div key={track.id} className="spotify-card p-2 rounded-lg group relative flex flex-col justify-between">
+                  <div 
+                    key={track.id} 
+                    className="bg-[#181818] p-2 rounded-lg border border-zinc-900 shadow-2xl hover:bg-[#282828] transition-all group relative flex flex-col justify-between"
+                  >
                     <div className="relative mb-2">
                       <iframe
                         src={`https://open.spotify.com/embed/track/${track.id}`}
@@ -257,24 +259,29 @@ export default function Home() {
                         allowFullScreen
                         allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
                         loading="lazy"
-                        className="rounded"
+                        className="rounded-md"
                       ></iframe>
                     </div>
-                    <button
-                      onClick={() => handleSelectTrack(track)}
-                      className="w-full text-left p-1 text-xs truncate hover:underline text-on-surface-variant hover:text-white"
-                    >
-                      <span className="font-bold text-white block truncate">{track.name}</span>
-                      {track.artist}
-                    </button>
+                    <div className="flex justify-between items-center p-2">
+                      <div className="flex-1 min-w-0 pr-2">
+                        <h4 className="font-bold text-sm text-white truncate">{track.name}</h4>
+                        <p className="text-xs text-on-surface-variant truncate">{track.artist}</p>
+                      </div>
+                      <button 
+                        onClick={() => handleSelectTrack(track)}
+                        className="w-10 h-10 bg-primary text-black rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 hover:scale-105 transition-all shadow-xl"
+                      >
+                        <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
+                      </button>
+                    </div>
                   </div>
                 ))}
-              </>
+              </div>
             )}
 
             {/* Case 3: Initial idle state (no results, not loading) - Show default placeholder cards */}
             {!isLoading && results.length === 0 && (
-              <>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 pb-28">
                 {/* Result Card 1 */}
                 <div 
                   className="spotify-card p-4 rounded-lg group cursor-pointer relative"
@@ -346,18 +353,15 @@ export default function Home() {
 
                 {/* Result Card 4 (Skeleton style) */}
                 <div className="spotify-card p-4 rounded-lg group cursor-pointer relative animate-pulse">
-                  <div className="aspect-square bg-zinc-800/50 rounded-md mb-4"></div>
-                  <div className="h-4 bg-zinc-800/50 rounded w-3/4 mb-2"></div>
-                  <div className="h-3 bg-zinc-800/50 rounded w-1/2"></div>
+                  <div className="relative mb-4">
+                    <div className="aspect-square bg-zinc-800 rounded-md shadow-2xl flex items-center justify-center">
+                      <span className="material-symbols-outlined text-6xl text-zinc-700">insights</span>
+                    </div>
+                  </div>
+                  <h4 className="font-bold text-sm truncate mb-1 text-zinc-600">Curating...</h4>
+                  <p className="text-xs text-zinc-700 line-clamp-2">Discover new suggestions tailored dynamically to your prompt.</p>
                 </div>
-
-                {/* Result Card 5 (Skeleton style) */}
-                <div className="spotify-card p-4 rounded-lg group cursor-pointer relative animate-pulse">
-                  <div className="aspect-square bg-zinc-800/50 rounded-md mb-4"></div>
-                  <div className="h-4 bg-zinc-800/50 rounded w-3/4 mb-2"></div>
-                  <div className="h-3 bg-zinc-800/50 rounded w-1/2"></div>
-                </div>
-              </>
+              </div>
             )}
           </div>
         </section>
@@ -393,7 +397,7 @@ export default function Home() {
         </div>
 
         {/* Player Controls */}
-        <div className="flex flex-col items-center gap-2 max-w-[45%] w-full">
+        <div className="flex flex-col items-center gap-2 max-w-[40%] w-full">
           <div className="flex items-center gap-6">
             <button className="text-on-surface-variant hover:text-white transition-colors"><span className="material-symbols-outlined text-xl">shuffle</span></button>
             <button className="text-on-surface-variant hover:text-white transition-colors"><span className="material-symbols-outlined text-3xl">skip_previous</span></button>
@@ -406,8 +410,8 @@ export default function Home() {
           <div className="w-full flex items-center gap-2">
             <span className="text-[11px] text-on-surface-variant w-8 text-right">0:00</span>
             <div className="flex-1 h-1 bg-zinc-800 rounded-full relative group cursor-pointer player-slider">
-              <div className="absolute top-0 left-0 h-full w-[10%] bg-white group-hover:bg-primary rounded-full"></div>
-              <div className="absolute top-1/2 left-[10%] w-3 h-3 bg-white rounded-full -translate-y-1/2 -translate-x-1/2 opacity-0 player-slider-thumb shadow-lg"></div>
+              <div className="absolute top-0 left-0 h-full w-[0%] bg-white group-hover:bg-primary rounded-full"></div>
+              <div className="absolute top-1/2 left-[0%] w-3 h-3 bg-white rounded-full -translate-y-1/2 -translate-x-1/2 opacity-0 player-slider-thumb shadow-lg"></div>
             </div>
             <span className="text-[11px] text-on-surface-variant w-8">3:00</span>
           </div>
