@@ -433,51 +433,20 @@ export default function Home() {
           </div>
           <div className="w-full">
             <h2 className="text-5xl font-black mb-6">What's the vibe?</h2>
-            <div className="relative flex flex-col gap-4">
+            <div className="flex flex-col md:flex-row gap-4 items-stretch mb-4">
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 disabled={isLoading}
-                className="w-full min-h-[140px] bg-[#2a2a2a] border-none rounded-lg p-6 text-lg focus:ring-0 placeholder:text-zinc-500 resize-none focus:outline-none"
+                className="flex-1 min-h-[140px] bg-[#2a2a2a] border-none rounded-lg p-6 text-lg focus:ring-0 placeholder:text-zinc-500 resize-none focus:outline-none"
                 placeholder="Describe the mood, instruments, or energy you're looking for... (e.g., 'Late night driving through a neon city')"
               ></textarea>
               
-              {/* Explore Option Chips right below textarea */}
-              <div className="flex flex-wrap gap-2 items-center">
-                <span className="text-xs text-on-surface-variant font-medium flex items-center gap-1.5 mr-1 select-none">
-                  <span className="material-symbols-outlined text-sm text-primary">explore</span> Explore:
-                </span>
-                {[
-                  "Late night driving through a neon city",
-                  "Chill lofi hip-hop beats for coding",
-                  "Energetic dance music for working out",
-                  "Warm acoustic folk for a rainy morning",
-                  "Heavy dark industrial techno beats",
-                  "Spacious ambient soundscapes for study"
-                ].map((vibe) => (
-                  <button 
-                    key={vibe} 
-                    onClick={() => setPrompt(vibe)}
-                    className="px-3 py-1.5 bg-[#2a2a2a] hover:bg-[#3e3e3e] active:scale-95 text-xs font-semibold text-white rounded-full transition-all border border-zinc-800 hover:border-zinc-700 select-none text-left"
-                    title={`Autofill: "${vibe}"`}
-                  >
-                    {vibe}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex justify-end gap-3 mt-2">
-                <button
-                  onClick={handleClear}
-                  disabled={isLoading}
-                  className="bg-transparent hover:bg-white/10 text-white font-bold px-6 py-3 rounded-full transition-all text-sm uppercase tracking-wider disabled:opacity-50"
-                >
-                  Clear
-                </button>
+              <div className="flex flex-col gap-3 justify-center w-full md:w-[220px] shrink-0">
                 <button
                   onClick={handleCurate}
                   disabled={isLoading || !prompt.trim()}
-                  className="bg-primary hover:bg-[#1ed760] disabled:bg-primary/50 text-black font-bold px-8 py-3 rounded-full transition-all text-sm uppercase tracking-wider shadow-xl flex items-center gap-2"
+                  className="w-full bg-primary hover:bg-[#1ed760] disabled:bg-primary/50 text-black font-bold py-3.5 rounded-full transition-all text-sm uppercase tracking-wider shadow-xl flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <>
@@ -491,7 +460,38 @@ export default function Home() {
                     </>
                   )}
                 </button>
+                <button
+                  onClick={handleClear}
+                  disabled={isLoading}
+                  className="w-full bg-transparent hover:bg-white/10 text-white font-bold py-3.5 rounded-full transition-all text-sm uppercase tracking-wider disabled:opacity-50 border border-white/20 hover:border-white/40"
+                >
+                  Clear
+                </button>
               </div>
+            </div>
+
+            {/* Explore Option Chips right below textarea */}
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-xs text-on-surface-variant font-medium flex items-center gap-1.5 mr-1 select-none">
+                <span className="material-symbols-outlined text-sm text-primary">explore</span> Explore:
+              </span>
+              {[
+                "Late night driving through a neon city",
+                "Chill lofi hip-hop beats for coding",
+                "Energetic dance music for working out",
+                "Warm acoustic folk for a rainy morning",
+                "Heavy dark industrial techno beats",
+                "Spacious ambient soundscapes for study"
+              ].map((vibe) => (
+                <button 
+                  key={vibe} 
+                  onClick={() => setPrompt(vibe)}
+                  className="px-3 py-1.5 bg-[#2a2a2a] hover:bg-[#3e3e3e] active:scale-95 text-xs font-semibold text-white rounded-full transition-all border border-zinc-800 hover:border-zinc-700 select-none text-left"
+                  title={`Autofill: "${vibe}"`}
+                >
+                  {vibe}
+                </button>
+              ))}
             </div>
           </div>
 
