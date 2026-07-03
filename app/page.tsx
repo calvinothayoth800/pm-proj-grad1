@@ -506,7 +506,7 @@ export default function Home() {
 
             {/* Error Message */}
             {error && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-200 p-4 rounded-lg mb-6 flex items-center gap-3">
+              <div className="bg-red-500/10 border border-red-500/30 text-red-200 p-4 rounded-lg mb-6 flex items-center gap-3 pointer-events-none select-none">
                 <span className="material-symbols-outlined text-red-500">error</span>
                 <p className="text-sm font-medium">{error}</p>
               </div>
@@ -514,7 +514,7 @@ export default function Home() {
 
             {/* Warning Message (Fallback triggered) */}
             {warning && (
-              <div className="bg-[#e9b308]/10 border border-[#e9b308]/30 text-[#fde047] p-4 rounded-lg mb-6 flex items-center gap-3">
+              <div className="bg-[#e9b308]/10 border border-[#e9b308]/30 text-[#fde047] p-4 rounded-lg mb-6 flex items-center gap-3 pointer-events-none select-none">
                 <span className="material-symbols-outlined text-[#e9b308]">warning</span>
                 <p className="text-sm font-medium">Over-filtering fallback triggered: returned top tracks directly as all matching options were excluded by search parameters.</p>
               </div>

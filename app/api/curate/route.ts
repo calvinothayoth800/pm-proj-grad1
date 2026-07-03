@@ -27,7 +27,9 @@ async function getSpotifyToken(): Promise<string> {
   });
 
   if (!res.ok) {
-    throw new Error(`Spotify authentication failed: ${res.statusText}`);
+    const errorText = await res.text();
+    console.error("Spotify auth request failed with body:", errorText);
+    throw new Error(`Spotify authentication failed: ${res.statusText} - ${errorText}`);
   }
 
   const data = await res.json();
