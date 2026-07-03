@@ -26,32 +26,68 @@ export default function Home() {
   });
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const progressSliderRef = useRef<HTMLDivElement>(null);
+  const volumeSliderRef = useRef<HTMLDivElement>(null);
 
   const [libraryFilter, setLibraryFilter] = useState<"all" | "playlists" | "artists" | "albums">("all");
   const [volume, setVolume] = useState(80);
   const [songProgress, setSongProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  const handleVolumeClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const newVolume = Math.round((clickX / rect.width) * 100);
-    const clampedVolume = Math.max(0, Math.min(100, newVolume));
-    setVolume(clampedVolume);
-    if (audioRef.current) {
-      audioRef.current.volume = clampedVolume / 100;
+  const updateProgressFromEvent = (clientX: number) => {
+    const slider = progressSliderRef.current;
+    if (!slider) return;
+    const rect = slider.getBoundingClientRect();
+    const clickX = clientX - rect.left;
+    const percent = Math.max(0, Math.min(100, Math.round((clickX / rect.width) * 100)));
+    setSongProgress(percent);
+    if (audioRef.current && audioRef.current.duration) {
+      audioRef.current.currentTime = (percent / 100) * audioRef.current.duration;
     }
   };
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percent = Math.round((clickX / rect.width) * 100);
-    const clampedPercent = Math.max(0, Math.min(100, percent));
-    setSongProgress(clampedPercent);
-    if (audioRef.current && audioRef.current.duration) {
-      audioRef.current.currentTime = (clampedPercent / 100) * audioRef.current.duration;
+  const handleProgressMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    updateProgressFromEvent(e.clientX);
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      updateProgressFromEvent(moveEvent.clientX);
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const updateVolumeFromEvent = (clientX: number) => {
+    const slider = volumeSliderRef.current;
+    if (!slider) return;
+    const rect = slider.getBoundingClientRect();
+    const clickX = clientX - rect.left;
+    const percent = Math.max(0, Math.min(100, Math.round((clickX / rect.width) * 100)));
+    setVolume(percent);
+    if (audioRef.current) {
+      audioRef.current.volume = percent / 100;
     }
+  };
+
+  const handleVolumeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    updateVolumeFromEvent(e.clientX);
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      updateVolumeFromEvent(moveEvent.clientX);
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
   };
 
   useEffect(() => {
@@ -61,6 +97,27 @@ export default function Home() {
       }
     };
   }, []);
+
+  // Butter-smooth progress animation loop (60 FPS)
+  useEffect(() => {
+    let animationFrameId: number;
+
+    const updateFrame = () => {
+      if (audioRef.current && isPlaying && !audioRef.current.paused) {
+        const audio = audioRef.current;
+        if (audio.duration) {
+          setSongProgress((audio.currentTime / audio.duration) * 100);
+        }
+        animationFrameId = requestAnimationFrame(updateFrame);
+      }
+    };
+
+    if (isPlaying) {
+      animationFrameId = requestAnimationFrame(updateFrame);
+    }
+
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [isPlaying]);
 
   // Backwards compatibility for mock playback ticker (if they toggle play pause without selecting a track)
   useEffect(() => {
@@ -137,12 +194,12 @@ export default function Home() {
     }
 
     const previewSrc = track.previewUrl || (track.id === "analog-dreams-mock" 
-      ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+      ? "https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3"
       : track.id === "neon-pulse-mock"
-      ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+      ? "https://dl.espressif.com/dl/audio/ff-16b-1c-44100hz.mp3"
       : track.id === "lofi-cityscape-mock"
-      ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
-      : "");
+      ? "https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3"
+      : "https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3");
 
     if (previewSrc) {
       const audio = new Audio(previewSrc);
@@ -153,12 +210,6 @@ export default function Home() {
       audio.play().catch(err => {
         console.log("Autoplay blocked or failed:", err);
       });
-
-      audio.ontimeupdate = () => {
-        if (audio.duration) {
-          setSongProgress((audio.currentTime / audio.duration) * 100);
-        }
-      };
 
       audio.onended = () => {
         setIsPlaying(false);
@@ -174,12 +225,12 @@ export default function Home() {
   const handlePlayPause = () => {
     if (!audioRef.current) {
       const previewSrc = currentTrack.previewUrl || (currentTrack.id === "analog-dreams-mock" 
-        ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+        ? "https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3"
         : currentTrack.id === "neon-pulse-mock"
-        ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+        ? "https://dl.espressif.com/dl/audio/ff-16b-1c-44100hz.mp3"
         : currentTrack.id === "lofi-cityscape-mock"
-        ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
-        : "");
+        ? "https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3"
+        : "https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3");
 
       if (previewSrc) {
         const audio = new Audio(previewSrc);
@@ -187,12 +238,6 @@ export default function Home() {
         audioRef.current = audio;
         setIsPlaying(true);
         audio.play().catch(err => console.log("Play failed:", err));
-
-        audio.ontimeupdate = () => {
-          if (audio.duration) {
-            setSongProgress((audio.currentTime / audio.duration) * 100);
-          }
-        };
 
         audio.onended = () => {
           setIsPlaying(false);
@@ -219,11 +264,11 @@ export default function Home() {
       <aside className="hidden md:flex flex-col w-[280px] gap-2 shrink-0">
         {/* Top Nav */}
         <div className="bg-surface rounded-lg p-4 flex flex-col gap-4">
-          <a className="flex items-center gap-5 px-2 spotify-sidebar-item active" href="#">
+          <a className="flex items-center gap-5 px-2 spotify-sidebar-item active" href="#" title="Home">
             <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>home</span>
             <span className="font-bold text-sm">Home</span>
           </a>
-          <a className="flex items-center gap-5 px-2 spotify-sidebar-item" href="#">
+          <a className="flex items-center gap-5 px-2 spotify-sidebar-item" href="#" title="Search">
             <span className="material-symbols-outlined text-2xl">search</span>
             <span className="font-bold text-sm">Search</span>
           </a>
@@ -231,13 +276,13 @@ export default function Home() {
         {/* Library Section */}
         <div className="bg-surface rounded-lg flex-1 flex flex-col overflow-hidden">
           <div className="p-4 flex items-center justify-between shadow-lg z-10">
-            <button className="flex items-center gap-3 spotify-sidebar-item">
+            <button className="flex items-center gap-3 spotify-sidebar-item" title="Your Library">
               <span className="material-symbols-outlined text-2xl">library_music</span>
               <span className="font-bold text-sm">Your Library</span>
             </button>
             <div className="flex gap-2">
-              <button className="p-1 spotify-sidebar-item"><span className="material-symbols-outlined">add</span></button>
-              <button className="p-1 spotify-sidebar-item"><span className="material-symbols-outlined">arrow_forward</span></button>
+              <button className="p-1 spotify-sidebar-item" title="Create playlist or folder"><span className="material-symbols-outlined">add</span></button>
+              <button className="p-1 spotify-sidebar-item" title="Show more"><span className="material-symbols-outlined">arrow_forward</span></button>
             </div>
           </div>
           {/* Library Tags */}
@@ -247,6 +292,7 @@ export default function Home() {
               className={`px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors ${
                 libraryFilter === "playlists" ? "bg-white text-black" : "bg-[#2a2a2a] text-white hover:bg-[#3e3e3e]"
               }`}
+              title="Filter by Playlists"
             >
               Playlists
             </span>
@@ -255,6 +301,7 @@ export default function Home() {
               className={`px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors ${
                 libraryFilter === "artists" ? "bg-white text-black" : "bg-[#2a2a2a] text-white hover:bg-[#3e3e3e]"
               }`}
+              title="Filter by Artists"
             >
               Artists
             </span>
@@ -263,6 +310,7 @@ export default function Home() {
               className={`px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors ${
                 libraryFilter === "albums" ? "bg-white text-black" : "bg-[#2a2a2a] text-white hover:bg-[#3e3e3e]"
               }`}
+              title="Filter by Albums"
             >
               Albums
             </span>
@@ -270,7 +318,7 @@ export default function Home() {
           {/* Library List */}
           <div className="flex-1 overflow-y-auto custom-scrollbar px-2 py-2">
             {(libraryFilter === "all" || libraryFilter === "playlists") && (
-              <div className="flex items-center gap-3 p-2 rounded-md hover:bg-white/5 cursor-pointer">
+              <div className="flex items-center gap-3 p-2 rounded-md hover:bg-white/5 cursor-pointer" title="Liked Songs">
                 <div className="w-12 h-12 bg-primary rounded flex items-center justify-center">
                   <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
                 </div>
@@ -284,7 +332,7 @@ export default function Home() {
               </div>
             )}
             {(libraryFilter === "all" || libraryFilter === "playlists") && (
-              <div className="flex items-center gap-3 p-2 rounded-md bg-white/10 cursor-pointer">
+              <div className="flex items-center gap-3 p-2 rounded-md bg-white/10 cursor-pointer" title="Crate Digger AI">
                 <div className="w-12 h-12 bg-[#1db954]/20 rounded flex items-center justify-center">
                   <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>album</span>
                 </div>
@@ -295,8 +343,8 @@ export default function Home() {
               </div>
             )}
             {(libraryFilter === "all" || libraryFilter === "albums") && (
-              <div className="flex items-center gap-3 p-2 rounded-md hover:bg-white/5 cursor-pointer opacity-70">
-                <img className="w-12 h-12 rounded object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFqg3Lmx2d40nxulFeqoAZx5YxxVJPraayqWajoMK1Yas8ReIzTug-BxIlvsBeToZgP5zmHf7DxsLXpzCqD0caLBQoNC5yBLbPRrm-eL6VT6T4p4oJpt6BFCZPTqT7_1L1eJciMQw6GIumKWiHyOCLqHU-1VvAz310unx_Xl5bVBUN-L5t3gHrbnVlGC6ISXDYOkGIur2-KL-1PDRWPn3bW1A0n2kyeEzMSsnMT9I0tAmgMN2t8A1mMgdNW-Qj6XNKyRx6udtzgw1-"/>
+              <div className="flex items-center gap-3 p-2 rounded-md hover:bg-white/5 cursor-pointer opacity-70" title="Midnight City (M83)">
+                <img className="w-12 h-12 rounded object-cover pointer-events-none" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFqg3Lmx2d40nxulFeqoAZx5YxxVJPraayqWajoMK1Yas8ReIzTug-BxIlvsBeToZgP5zmHf7DxsLXpzCqD0caLBQoNC5yBLbPRrm-eL6VT6T4p4oJpt6BFCZPTqT7_1L1eJciMQw6GIumKWiHyOCLqHU-1VvAz310unx_Xl5bVBUN-L5t3gHrbnVlGC6ISXDYOkGIur2-KL-1PDRWPn3bW1A0n2kyeEzMSsnMT9I0tAmgMN2t8A1mMgdNW-Qj6XNKyRx6udtzgw1-"/>
                 <div className="flex flex-col">
                   <span className="text-sm font-medium text-white">Midnight City</span>
                   <span className="text-xs text-on-surface-variant">Album • M83</span>
@@ -317,14 +365,14 @@ export default function Home() {
         {/* Top Sticky Header */}
         <header className="sticky top-0 h-16 px-6 flex items-center justify-between z-20 bg-[#121212]/80 backdrop-blur-md">
           <div className="flex gap-2">
-            <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"><span className="material-symbols-outlined text-white">chevron_left</span></button>
-            <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center opacity-50"><span className="material-symbols-outlined text-white">chevron_right</span></button>
+            <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors" title="Go back"><span className="material-symbols-outlined text-white">chevron_left</span></button>
+            <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center opacity-50" title="Go forward"><span className="material-symbols-outlined text-white">chevron_right</span></button>
           </div>
           <div className="flex items-center gap-4">
-            <button className="bg-white text-black px-2.5 py-1 rounded-full text-xs font-bold hover:scale-105 transition-transform shrink-0">Explore Premium</button>
-            <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"><span className="material-symbols-outlined text-white text-[20px]">notifications</span></button>
-            <button className="w-8 h-8 rounded-full bg-black/40 p-1 flex items-center justify-center hover:bg-black/60 transition-colors">
-              <div className="w-full h-full rounded-full bg-zinc-600"></div>
+            <button className="bg-white text-black px-2.5 py-1 rounded-full text-xs font-bold hover:scale-105 transition-transform shrink-0" title="Explore Premium">Explore Premium</button>
+            <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors" title="Notifications"><span className="material-symbols-outlined text-white text-[20px]">notifications</span></button>
+            <button className="w-8 h-8 rounded-full bg-black/40 p-1 flex items-center justify-center hover:bg-black/60 transition-colors" title="Profile">
+              <div className="w-full h-full rounded-full bg-zinc-600 pointer-events-none"></div>
             </button>
           </div>
         </header>
@@ -415,7 +463,7 @@ export default function Home() {
 
             {/* Case 2: Curated tracks returned */}
             {!isLoading && results.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-28">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 pb-28">
                 {results.map((track) => (
                   <div 
                     key={track.id} 
@@ -534,9 +582,9 @@ export default function Home() {
       <footer className="h-[90px] bg-black px-4 flex items-center justify-between z-50 fixed bottom-0 left-0 right-0 border-t border-zinc-900">
         {/* Current Track */}
         <div className="flex items-center gap-4 w-[30%]">
-          <div className="w-14 h-14 rounded overflow-hidden shadow-lg group relative cursor-pointer flex-shrink-0 bg-zinc-800 flex items-center justify-center">
+          <div className="w-14 h-14 rounded overflow-hidden shadow-lg group relative flex-shrink-0 bg-zinc-800 flex items-center justify-center select-none" title="Cover Art">
             {currentTrack.imageUrl ? (
-              <img className="w-full h-full object-cover" src={currentTrack.imageUrl} alt={currentTrack.name}/>
+              <img className="w-full h-full object-cover pointer-events-none select-none" src={currentTrack.imageUrl} alt={currentTrack.name}/>
             ) : (
               <span className="material-symbols-outlined text-zinc-400 text-3xl">music_note</span>
             )}
@@ -579,8 +627,10 @@ export default function Home() {
               {Math.floor((songProgress * 1.8) / 60)}:{Math.floor((songProgress * 1.8) % 60) < 10 ? "0" : ""}{Math.floor((songProgress * 1.8) % 60)}
             </span>
             <div 
-              onClick={handleProgressClick}
+              ref={progressSliderRef}
+              onMouseDown={handleProgressMouseDown}
               className="flex-1 h-1 bg-zinc-800 rounded-full relative group cursor-pointer player-slider"
+              title="Seek"
             >
               <div className="absolute top-0 left-0 h-full bg-white group-hover:bg-primary rounded-full pointer-events-none" style={{ width: `${songProgress}%` }}></div>
               <div className="absolute top-1/2 w-3 h-3 bg-white rounded-full -translate-y-1/2 -translate-x-1/2 opacity-0 player-slider-thumb shadow-lg pointer-events-none" style={{ left: `${songProgress}%` }}></div>
@@ -594,12 +644,13 @@ export default function Home() {
           <button className="text-on-surface-variant hover:text-white" title="Lyrics"><span className="material-symbols-outlined text-lg">mic</span></button>
           <button className="text-on-surface-variant hover:text-white" title="Queue"><span className="material-symbols-outlined text-lg">queue_music</span></button>
           <button className="text-on-surface-variant hover:text-white" title="Connect to a device"><span className="material-symbols-outlined text-lg">devices</span></button>
-          <div className="flex items-center gap-2 group w-32">
+          <div className="flex items-center gap-2 group w-32" title="Volume">
             <span className="material-symbols-outlined text-on-surface-variant text-lg">
               {volume === 0 ? "volume_off" : volume < 50 ? "volume_down" : "volume_up"}
             </span>
             <div 
-              onClick={handleVolumeClick}
+              ref={volumeSliderRef}
+              onMouseDown={handleVolumeMouseDown}
               className="flex-1 h-1 bg-zinc-800 rounded-full relative cursor-pointer group-hover:bg-zinc-700"
             >
               <div className="absolute top-0 left-0 h-full bg-white group-hover:bg-primary rounded-full pointer-events-none" style={{ width: `${volume}%` }}></div>
