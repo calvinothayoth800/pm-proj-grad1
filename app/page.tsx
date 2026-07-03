@@ -28,6 +28,16 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressSliderRef = useRef<HTMLDivElement>(null);
   const volumeSliderRef = useRef<HTMLDivElement>(null);
+  const resultsRef = useRef<Track[]>([]);
+  const currentTrackRef = useRef<Partial<Track>>({});
+
+  useEffect(() => {
+    resultsRef.current = results;
+  }, [results]);
+
+  useEffect(() => {
+    currentTrackRef.current = currentTrack;
+  }, [currentTrack]);
 
   const [libraryFilter, setLibraryFilter] = useState<"all" | "playlists" | "artists" | "albums">("all");
   const [volume, setVolume] = useState(80);
@@ -186,7 +196,7 @@ export default function Home() {
     setSongProgress(0);
   };
 
-  const handleSelectTrack = (track: Track) => {
+  const playTrack = (track: Track) => {
     setCurrentTrack(track);
 
     if (audioRef.current) {
@@ -212,14 +222,44 @@ export default function Home() {
       });
 
       audio.onended = () => {
-        setIsPlaying(false);
-        setSongProgress(0);
+        const latestResults = resultsRef.current;
+        const latestCurrentTrack = currentTrackRef.current;
+        if (latestResults.length > 0) {
+          const currentIndex = latestResults.findIndex(t => t.id === latestCurrentTrack.id);
+          const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % latestResults.length;
+          playTrack(latestResults[nextIndex]);
+        } else {
+          setIsPlaying(false);
+          setSongProgress(0);
+        }
       };
     } else {
       audioRef.current = null;
       setIsPlaying(false);
       setSongProgress(0);
     }
+  };
+
+  const handleSelectTrack = (track: Track) => {
+    playTrack(track);
+  };
+
+  const handleNextTrack = () => {
+    const latestResults = resultsRef.current;
+    const latestCurrentTrack = currentTrackRef.current;
+    if (latestResults.length === 0) return;
+    const currentIndex = latestResults.findIndex(t => t.id === latestCurrentTrack.id);
+    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % latestResults.length;
+    playTrack(latestResults[nextIndex]);
+  };
+
+  const handlePrevTrack = () => {
+    const latestResults = resultsRef.current;
+    const latestCurrentTrack = currentTrackRef.current;
+    if (latestResults.length === 0) return;
+    const currentIndex = latestResults.findIndex(t => t.id === latestCurrentTrack.id);
+    const prevIndex = currentIndex === -1 ? latestResults.length - 1 : (currentIndex - 1 + latestResults.length) % latestResults.length;
+    playTrack(latestResults[prevIndex]);
   };
 
   const handlePlayPause = () => {
@@ -240,8 +280,16 @@ export default function Home() {
         audio.play().catch(err => console.log("Play failed:", err));
 
         audio.onended = () => {
-          setIsPlaying(false);
-          setSongProgress(0);
+          const latestResults = resultsRef.current;
+          const latestCurrentTrack = currentTrackRef.current;
+          if (latestResults.length > 0) {
+            const currentIndex = latestResults.findIndex(t => t.id === latestCurrentTrack.id);
+            const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % latestResults.length;
+            playTrack(latestResults[nextIndex]);
+          } else {
+            setIsPlaying(false);
+            setSongProgress(0);
+          }
         };
       } else {
         setIsPlaying(!isPlaying);
@@ -383,41 +431,76 @@ export default function Home() {
             <span className="material-symbols-outlined text-primary text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>album</span>
             <h1 className="text-3xl font-extrabold tracking-tight">Crate Digger AI</h1>
           </div>
-          <div className="max-w-3xl">
-            <h2 className="text-5xl font-black mb-6">What's the vibe?</h2>
-            <div className="relative">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                disabled={isLoading}
-                className="w-full min-h-[140px] bg-[#2a2a2a] border-none rounded-lg p-6 text-lg focus:ring-0 placeholder:text-zinc-500 resize-none mb-4 focus:outline-none"
-                placeholder="Describe the mood, instruments, or energy you're looking for... (e.g., 'Late night driving through a neon city')"
-              ></textarea>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={handleClear}
+          <div className="flex flex-col lg:flex-row gap-6 items-stretch w-full">
+            <div className="flex-1 max-w-3xl">
+              <h2 className="text-5xl font-black mb-6">What's the vibe?</h2>
+              <div className="relative">
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
                   disabled={isLoading}
-                  className="bg-transparent hover:bg-white/10 text-white font-bold px-6 py-3 rounded-full transition-all text-sm uppercase tracking-wider disabled:opacity-50"
-                >
-                  Clear
-                </button>
-                <button
-                  onClick={handleCurate}
-                  disabled={isLoading || !prompt.trim()}
-                  className="bg-primary hover:bg-[#1ed760] disabled:bg-primary/50 text-black font-bold px-8 py-3 rounded-full transition-all text-sm uppercase tracking-wider shadow-xl flex items-center gap-2"
-                >
-                  {isLoading ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-                      Curating...
-                    </>
-                  ) : (
-                    <>
-                      <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
-                      Curate My Vibe
-                    </>
-                  )}
-                </button>
+                  className="w-full min-h-[140px] bg-[#2a2a2a] border-none rounded-lg p-6 text-lg focus:ring-0 placeholder:text-zinc-500 resize-none mb-4 focus:outline-none"
+                  placeholder="Describe the mood, instruments, or energy you're looking for... (e.g., 'Late night driving through a neon city')"
+                ></textarea>
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={handleClear}
+                    disabled={isLoading}
+                    className="bg-transparent hover:bg-white/10 text-white font-bold px-6 py-3 rounded-full transition-all text-sm uppercase tracking-wider disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={handleCurate}
+                    disabled={isLoading || !prompt.trim()}
+                    className="bg-primary hover:bg-[#1ed760] disabled:bg-primary/50 text-black font-bold px-8 py-3 rounded-full transition-all text-sm uppercase tracking-wider shadow-xl flex items-center gap-2"
+                  >
+                    {isLoading ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                        Curating...
+                      </>
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
+                        Curate My Vibe
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Explore Vibes Sidecard */}
+            <div className="lg:w-[350px] bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col justify-between hover:border-white/15 transition-colors">
+              <div>
+                <h4 className="text-base font-bold mb-2 flex items-center gap-2 text-primary">
+                  <span className="material-symbols-outlined text-lg">explore</span> Explore Vibes
+                </h4>
+                <p className="text-xs text-on-surface-variant mb-4">Click a trending vibe tag to populate the curator input box automatically:</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    "Late night driving through a neon city",
+                    "Chill lofi hip-hop beats for coding",
+                    "Energetic dance music for working out",
+                    "Warm acoustic folk for a rainy morning",
+                    "Heavy dark industrial techno beats",
+                    "Spacious ambient soundscapes for study"
+                  ].map((vibe) => (
+                    <button 
+                      key={vibe} 
+                      onClick={() => setPrompt(vibe)}
+                      className="px-2.5 py-1.5 bg-[#2a2a2a] hover:bg-[#3e3e3e] active:scale-95 text-[11px] font-semibold text-white rounded-full transition-all border border-zinc-800 hover:border-zinc-700 select-none text-left"
+                      title={`Autofill: "${vibe}"`}
+                    >
+                      {vibe}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="pt-4 mt-4 border-t border-white/5 flex items-center gap-3">
+                <span className="material-symbols-outlined text-primary text-sm">info</span>
+                <span className="text-[10px] text-on-surface-variant leading-relaxed">Crate Digger AI runs real-time semantic queries against Spotify's API to fetch personalized music vibes.</span>
               </div>
             </div>
           </div>
@@ -611,7 +694,7 @@ export default function Home() {
         <div className="flex flex-col items-center gap-2 max-w-[40%] w-full">
           <div className="flex items-center gap-6">
             <button className="text-on-surface-variant hover:text-white transition-colors" title="Shuffle"><span className="material-symbols-outlined text-xl">shuffle</span></button>
-            <button className="text-on-surface-variant hover:text-white transition-colors" title="Previous"><span className="material-symbols-outlined text-3xl">skip_previous</span></button>
+            <button className="text-on-surface-variant hover:text-white transition-colors" title="Previous" onClick={handlePrevTrack}><span className="material-symbols-outlined text-3xl">skip_previous</span></button>
             <button 
               onClick={handlePlayPause}
               className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform"
@@ -619,7 +702,7 @@ export default function Home() {
             >
               <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>{isPlaying ? "pause" : "play_arrow"}</span>
             </button>
-            <button className="text-on-surface-variant hover:text-white transition-colors" title="Next"><span className="material-symbols-outlined text-3xl">skip_next</span></button>
+            <button className="text-on-surface-variant hover:text-white transition-colors" title="Next" onClick={handleNextTrack}><span className="material-symbols-outlined text-3xl">skip_next</span></button>
             <button className="text-on-surface-variant hover:text-white transition-colors" title="Repeat"><span className="material-symbols-outlined text-xl">repeat</span></button>
           </div>
           <div className="w-full flex items-center gap-2">
