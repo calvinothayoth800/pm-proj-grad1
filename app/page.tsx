@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { usePlayback } from "@/context/PlayerContext";
 import { Playlist, Track, DEFAULT_PLAYLISTS } from "@/lib/playlists";
+import { getFeedbackSummary } from "@/lib/feedback";
 import PlaylistCard from "@/components/PlaylistCard";
 
 export default function Home() {
@@ -46,7 +47,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, feedback: getFeedbackSummary() }),
       });
 
       if (!res.ok) {

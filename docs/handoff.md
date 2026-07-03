@@ -8,12 +8,9 @@ Vercel (`pm-proj-grad1.vercel.app`) was still serving **old** `/api/curate` code
 
 ## Latest Changes (This Commit)
 
-- Semantic Groq pipeline with `seed_artists` — no literal prompt → Spotify Search
-- Anti-spam filters: keyword-stuffed titles ("Neon Cityscape"), popularity floor, filler artist blocklist
-- Spotify embed preview enrichment (`p.scdn.co/mp3-preview`) — SoundHelix blocked
-- Returns **5 tracks** per PRD (not 8)
-- `PlayerContext` audio teardown fix for same-song bug
-- `docs/architecture.md` aligned with PRD
+- **Feedback buttons (no DB):** `lib/feedback.ts` stores likes/dislikes in `localStorage`. Thumbs up boosts artists in future curations; thumbs down removes track + blacklists artist/track for future `/api/curate` calls.
+- **In-playlist agent:** `/api/playlist-agent` + UI on playlist page. Commands like "remove all western pop" or "add 3 more hindi tracks" edit the playlist in place (still localStorage for curated playlists).
+- **Hindi/desi accuracy:** Regional artist hints + western artist exclude list when prompt mentions hindi/bollywood/desi.
 
 ## Neon City Prompt Test (Local, Post-Fix)
 

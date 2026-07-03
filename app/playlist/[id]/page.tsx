@@ -4,6 +4,24 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { usePlayback } from "@/context/PlayerContext";
 import { Playlist, Track, DEFAULT_PLAYLISTS } from "@/lib/playlists";
+import {
+  getFeedbackSummary,
+  getTrackFeedbackMap,
+  saveTrackFeedback,
+} from "@/lib/feedback";
+
+function persistCuratedPlaylist(updated: Playlist) {
+  const stored = localStorage.getItem("curatedPlaylists");
+  if (!stored) return;
+
+  const curated: Playlist[] = JSON.parse(stored);
+  const idx = curated.findIndex((playlist) => playlist.id === updated.id);
+  if (idx === -1) return;
+
+  curated[idx] = updated;
+  localStorage.setItem("curatedPlaylists", JSON.stringify(curated));
+  window.dispatchEvent(new Event("curationAdded"));
+}
 
 export default function PlaylistDetails() {
   const params = useParams();
@@ -14,7 +32,13 @@ export default function PlaylistDetails() {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [loading, setLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [trackFeedback, setTrackFeedback] = useState<Record<string, "up" | "down" | null>>({});
+  const [trackFeedback, setTrackFeedback] = useState<Record<string, "up" | "down">>({});
+  const [agentCommand, setAgentCommand] = useState("");
+  const [agentLoading, setAgentLoading] = useState(false);
+
+  useEffect(() => {
+    setTrackFeedback(getTrackFeedbackMap());
+  }, []);
 
   useEffect(() => {
     if (toastMessage) {
@@ -129,42 +153,112 @@ export default function PlaylistDetails() {
     }
   };
 
-  const handleFeedback = (trackId: string, feedbackType: "up" | "down", e: React.MouseEvent) => {
+  const updatePlaylistTracks = (updatedTracks: Track[], toast: string) => {
+    if (!playlist) return;
+
+    const updatedPlaylist: Playlist = {
+      ...playlist,
+      tracks: updatedTracks,
+      imageUrl: updatedTracks[0]?.imageUrl || playlist.imageUrl,
+    };
+
+    setPlaylist(updatedPlaylist);
+    if (playlist.isCurated) {
+      persistCuratedPlaylist(updatedPlaylist);
+    }
+    setToastMessage(toast);
+  };
+
+  const handleAgentCommand = async () => {
+    if (!playlist || !agentCommand.trim() || agentLoading) return;
+
+    setAgentLoading(true);
+    try {
+      const res = await fetch("/api/playlist-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          command: agentCommand.trim(),
+          tracks: playlist.tracks,
+          playlistContext: `${playlist.name}. ${playlist.description}`,
+        }),
+      });
+
+      const plan = await res.json();
+      if (!res.ok) {
+        throw new Error(plan.error || "Agent could not update playlist");
+      }
+
+      const removeIds = new Set<string>(plan.remove_track_ids || []);
+      let updatedTracks = playlist.tracks.filter((track) => !removeIds.has(track.id));
+
+      if (plan.add_prompt) {
+        const curateRes = await fetch("/api/curate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: plan.add_prompt,
+            feedback: getFeedbackSummary(),
+          }),
+        });
+
+        if (!curateRes.ok) {
+          const err = await curateRes.json();
+          throw new Error(err.error || "Failed to add tracks");
+        }
+
+        const curateData = await curateRes.json();
+        const existingIds = new Set(updatedTracks.map((track) => track.id));
+        const addCount = Math.min(5, Math.max(1, Number(plan.add_count) || 3));
+        const newTracks = ((curateData.tracks || []) as Track[])
+          .filter((track) => !existingIds.has(track.id))
+          .slice(0, addCount);
+
+        updatedTracks = [...updatedTracks, ...newTracks];
+      }
+
+      updatePlaylistTracks(updatedTracks, plan.explanation || "Playlist updated.");
+      setAgentCommand("");
+    } catch (error: unknown) {
+      setToastMessage(
+        error instanceof Error ? error.message : "Agent update failed."
+      );
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
+  const handleFeedback = (track: Track, feedbackType: "up" | "down", e: React.MouseEvent) => {
     e.stopPropagation();
 
     if (feedbackType === "up") {
-      setTrackFeedback((prev) => ({
-        ...prev,
-        [trackId]: prev[trackId] === "up" ? null : "up",
-      }));
-      setToastMessage("Feedback logged. The AI will prioritize similar tracks.");
-    } else {
-      setTrackFeedback((prev) => ({
-        ...prev,
-        [trackId]: "down",
-      }));
-      setToastMessage("Feedback logged. The AI will avoid this track in future sessions.");
-
-      setTimeout(() => {
-        if (!playlist) return;
-
-        const updatedTracks = playlist.tracks.filter((t) => t.id !== trackId);
-        const updatedPlaylist = { ...playlist, tracks: updatedTracks };
-        setPlaylist(updatedPlaylist);
-
-        // Update in localStorage if curated
-        const stored = localStorage.getItem("curatedPlaylists");
-        if (stored) {
-          const curated: Playlist[] = JSON.parse(stored);
-          const idx = curated.findIndex((p) => p.id === playlist.id);
-          if (idx !== -1) {
-            curated[idx] = updatedPlaylist;
-            localStorage.setItem("curatedPlaylists", JSON.stringify(curated));
-            window.dispatchEvent(new Event("curationAdded"));
-          }
-        }
-      }, 300);
+      const next = trackFeedback[track.id] === "up" ? null : "up";
+      saveTrackFeedback(track.id, track.name, track.artist, next);
+      setTrackFeedback((prev) => {
+        const updated = { ...prev };
+        if (next) updated[track.id] = "up";
+        else delete updated[track.id];
+        return updated;
+      });
+      setToastMessage(
+        next
+          ? `Liked ${track.artist}. Future playlists will lean this way.`
+          : "Removed like feedback."
+      );
+      return;
     }
+
+    saveTrackFeedback(track.id, track.name, track.artist, "down");
+    setTrackFeedback((prev) => ({ ...prev, [track.id]: "down" }));
+
+    setTimeout(() => {
+      if (!playlist) return;
+      const updatedTracks = playlist.tracks.filter((item) => item.id !== track.id);
+      updatePlaylistTracks(
+        updatedTracks,
+        `Removed ${track.name}. ${track.artist} avoided in future curations.`
+      );
+    }, 250);
   };
 
   return (
@@ -245,6 +339,38 @@ export default function PlaylistDetails() {
           </button>
         </div>
 
+        {/* In-playlist AI agent */}
+        <div className="mb-8 rounded-xl border border-zinc-800 bg-[#1a1a1a] p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="material-symbols-outlined text-primary text-lg">smart_toy</span>
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              Playlist Agent
+            </h3>
+          </div>
+          <p className="text-xs text-on-surface-variant mb-3">
+            Edit this playlist in plain English — remove genres, add songs, fix mismatches. No database needed; changes save to your library.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              value={agentCommand}
+              onChange={(e) => setAgentCommand(e.target.value)}
+              disabled={agentLoading}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAgentCommand();
+              }}
+              placeholder='e.g. "remove all western pop songs" or "add 3 more hindi bollywood tracks"'
+              className="flex-1 bg-[#2a2a2a] border border-zinc-700 rounded-full px-4 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-primary"
+            />
+            <button
+              onClick={handleAgentCommand}
+              disabled={agentLoading || !agentCommand.trim()}
+              className="bg-primary hover:bg-[#1ed760] disabled:opacity-50 text-black font-bold px-5 py-2.5 rounded-full text-sm uppercase tracking-wider shrink-0"
+            >
+              {agentLoading ? "Working..." : "Run Agent"}
+            </button>
+          </div>
+        </div>
+
         {/* Songs Table Header */}
         <div className="grid grid-cols-[40px_1fr_100px_60px] border-b border-zinc-800 pb-2 px-4 text-xs font-bold uppercase tracking-wider text-on-surface-variant select-none">
           <span className="text-center">#</span>
@@ -307,7 +433,7 @@ export default function PlaylistDetails() {
                 {/* Feedback Buttons */}
                 <div className="flex justify-center gap-4" onClick={(e) => e.stopPropagation()}>
                   <button
-                    onClick={(e) => handleFeedback(track.id, 'up', e)}
+                    onClick={(e) => handleFeedback(track, "up", e)}
                     className={`transition-all duration-200 flex items-center justify-center cursor-pointer hover:scale-125 ${
                       trackFeedback[track.id] === 'up'
                         ? 'text-primary'
@@ -323,7 +449,7 @@ export default function PlaylistDetails() {
                     </span>
                   </button>
                   <button
-                    onClick={(e) => handleFeedback(track.id, 'down', e)}
+                    onClick={(e) => handleFeedback(track, "down", e)}
                     className={`transition-all duration-200 flex items-center justify-center cursor-pointer hover:scale-125 ${
                       trackFeedback[track.id] === 'down'
                         ? 'text-red-500'

@@ -132,6 +132,12 @@ const FALLBACK_REFERENCE_ARTISTS: Record<string, string[]> = {
   techno: ["Charlotte de Witte", "Amelie Lens", "Adam Beyer"],
 };
 
+const REGIONAL_ARTIST_HINTS: Record<string, string[]> = {
+  hindi: ["Arijit Singh", "Sunidhi Chauhan", "Shreya Ghoshal", "Pritam", "Badshah"],
+  bollywood: ["Arijit Singh", "Sunidhi Chauhan", "Atif Aslam", "A.R. Rahman", "Neha Kakkar"],
+  desi: ["Arijit Singh", "Diljit Dosanjh", "AP Dhillon", "Shreya Ghoshal", "Badshah"],
+};
+
 const MIN_TRACK_POPULARITY = 15;
 const BLOCKED_PREVIEW_HOSTS = ["soundhelix.com"];
 
@@ -145,6 +151,12 @@ interface AgentOutput {
   target_valence: number;
   target_danceability: number;
   exclude_keywords: string[];
+}
+
+interface CurationFeedback {
+  likedArtists?: string[];
+  dislikedArtists?: string[];
+  dislikedTrackIds?: string[];
 }
 
 interface SpotifyTrack {
@@ -396,7 +408,64 @@ function chooseTopTracks(
   };
 }
 
-function buildSemanticSearchQueries(agentConfig: AgentOutput) {
+function applyFeedbackToAgent(
+  agent: AgentOutput,
+  feedback?: CurationFeedback
+): AgentOutput {
+  if (!feedback) return agent;
+
+  const disliked = (feedback.dislikedArtists || []).map((artist) =>
+    artist.toLowerCase()
+  );
+  const liked = feedback.likedArtists || [];
+
+  return {
+    ...agent,
+    seed_artists: Array.from(
+      new Set([...liked.slice(0, 3), ...agent.seed_artists])
+    ).slice(0, 6),
+    exclude_keywords: sanitizeKeywords([
+      ...agent.exclude_keywords,
+      ...disliked,
+    ]),
+  };
+}
+
+function getRegionalExcludes(prompt: string): string[] {
+  const lower = prompt.toLowerCase();
+  if (!/(hindi|desi|bollywood|indian|punjabi)/.test(lower)) return [];
+
+  return [
+    "taylor swift",
+    "dua lipa",
+    "the weeknd",
+    "ed sheeran",
+    "arctic monkeys",
+    "bon iver",
+    "frank ocean",
+    "drake",
+    "calvin harris",
+    "justin bieber",
+    "coldplay",
+    "hozier",
+    "the xx",
+  ];
+}
+
+function getRegionalArtistHints(prompt: string) {
+  const lower = prompt.toLowerCase();
+  const hints: string[] = [];
+
+  for (const [keyword, artists] of Object.entries(REGIONAL_ARTIST_HINTS)) {
+    if (lower.includes(keyword)) {
+      hints.push(...artists);
+    }
+  }
+
+  return Array.from(new Set(hints));
+}
+
+function buildSemanticSearchQueries(agentConfig: AgentOutput, prompt = "") {
   const seedGenres = agentConfig.seed_genres
     .split(",")
     .map((genre) => genre.trim())
@@ -406,8 +475,16 @@ function buildSemanticSearchQueries(agentConfig: AgentOutput) {
     seedGenres.flatMap((genre) => FALLBACK_REFERENCE_ARTISTS[genre] || [])
   );
 
+  const regionalArtists = getRegionalArtistHints(prompt);
+
   const artistPool = Array.from(
-    new Set(shuffleItems([...agentConfig.seed_artists, ...referenceArtists]))
+    new Set(
+      shuffleItems([
+        ...agentConfig.seed_artists,
+        ...referenceArtists,
+        ...regionalArtists,
+      ])
+    )
   );
 
   const queries = artistPool.slice(0, 10).map((artist) => `artist:"${artist}"`);
@@ -457,10 +534,21 @@ async function getSpotifyToken(): Promise<string> {
   return accessToken;
 }
 
-async function getGroqCurationAgent(prompt: string): Promise<AgentOutput> {
+async function getGroqCurationAgent(
+  prompt: string,
+  feedback?: CurationFeedback
+): Promise<AgentOutput> {
   const groqApiKey = (process.env.GROQ_API_KEY || "").trim();
   if (!groqApiKey) {
     throw new Error("Missing Groq API Key in environment variables");
+  }
+
+  let userContent = prompt;
+  if (feedback?.likedArtists?.length) {
+    userContent += `\nUser liked artists to lean toward: ${feedback.likedArtists.join(", ")}`;
+  }
+  if (feedback?.dislikedArtists?.length) {
+    userContent += `\nUser disliked artists to avoid: ${feedback.dislikedArtists.join(", ")}`;
   }
 
   try {
@@ -500,11 +588,12 @@ Rules:
 8. Late-night romantic melodic vibes should use lower energy, warmer genres like r-n-b, soul, romance, chill, or acoustic, and artists like Daniel Caesar, Giveon, Snoh Aalegra, Frank Ocean, or SZA.
 9. If the user rejects synthy/electronic sounds, exclude synth-pop, electronic, edm, techno and add synth-related exclude keywords.
 10. Never return generic filler artists or royalty-free style names.
-11. NEVER use the user's prompt words as search keywords. You are generating API parameters only.`,
+11. NEVER use the user's prompt words as search keywords. You are generating API parameters only.
+12. For Hindi, desi, Bollywood, or Indian requests: seed_artists must be Indian artists only (Arijit Singh, Sunidhi Chauhan, Shreya Ghoshal, Pritam, Badshah, A.R. Rahman). exclude_keywords must include western pop artists like Taylor Swift, Dua Lipa, The Weeknd, Ed Sheeran.`,
             },
             {
               role: "user",
-              content: prompt,
+              content: userContent,
             },
           ],
           response_format: { type: "json_object" },
@@ -519,7 +608,10 @@ Rules:
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "";
-    return sanitizeAgentOutput(JSON.parse(content));
+    return applyFeedbackToAgent(
+      sanitizeAgentOutput(JSON.parse(content)),
+      feedback
+    );
   } catch (error) {
     console.error("Groq semantic parser failed; using fallback:", error);
     return DEFAULT_AGENT_OUTPUT;
@@ -563,9 +655,10 @@ async function fetchSpotifyRecommendations(
 
 async function searchSpotifySemantic(
   agentConfig: AgentOutput,
-  token: string
+  token: string,
+  prompt = ""
 ) {
-  const queries = buildSemanticSearchQueries(agentConfig);
+  const queries = buildSemanticSearchQueries(agentConfig, prompt);
   const requests = queries.map(async (query) => {
     const params = new URLSearchParams({
       q: query,
@@ -657,13 +750,32 @@ async function enrichTracksWithSpotifyPreviews(
 
 export async function POST(req: Request) {
   try {
-    const { prompt } = await req.json();
+    const { prompt, feedback } = await req.json();
     if (typeof prompt !== "string" || !prompt.trim()) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
     const cleanPrompt = prompt.trim();
-    const agentConfig = await getGroqCurationAgent(cleanPrompt);
+    const feedbackContext: CurationFeedback | undefined =
+      feedback && typeof feedback === "object"
+        ? {
+            likedArtists: Array.isArray(feedback.likedArtists)
+              ? feedback.likedArtists
+              : [],
+            dislikedArtists: Array.isArray(feedback.dislikedArtists)
+              ? feedback.dislikedArtists
+              : [],
+            dislikedTrackIds: Array.isArray(feedback.dislikedTrackIds)
+              ? feedback.dislikedTrackIds
+              : [],
+          }
+        : undefined;
+
+    const agentConfig = await getGroqCurationAgent(cleanPrompt, feedbackContext);
+    agentConfig.exclude_keywords = sanitizeKeywords([
+      ...agentConfig.exclude_keywords,
+      ...getRegionalExcludes(cleanPrompt),
+    ]);
     const token = await getSpotifyToken();
 
     let source: "recommendations" | "semantic_search" = "semantic_search";
@@ -680,16 +792,18 @@ export async function POST(req: Request) {
       );
       source = "semantic_search";
       warning = true;
-      tracks = await searchSpotifySemantic(agentConfig, token);
+      tracks = await searchSpotifySemantic(agentConfig, token, cleanPrompt);
     }
 
     if (tracks.length === 0) {
       source = "semantic_search";
       warning = true;
-      tracks = await searchSpotifySemantic(agentConfig, token);
+      tracks = await searchSpotifySemantic(agentConfig, token, cleanPrompt);
     }
 
-    const uniqueTracks = dedupeTracks(tracks);
+    const uniqueTracks = dedupeTracks(tracks).filter(
+      (track) => !feedbackContext?.dislikedTrackIds?.includes(track.id)
+    );
     let enrichedTracks = await enrichTracksWithSpotifyPreviews(uniqueTracks);
     let chosen = chooseTopTracks(
       enrichedTracks,
@@ -699,7 +813,11 @@ export async function POST(req: Request) {
 
     const playableCount = chosen.tracks.filter((track) => track.previewUrl).length;
     if (playableCount < 3 && uniqueTracks.length > 0) {
-      const extraTracks = await searchSpotifySemantic(agentConfig, token);
+      const extraTracks = await searchSpotifySemantic(
+        agentConfig,
+        token,
+        cleanPrompt
+      );
       const merged = dedupeTracks([...enrichedTracks, ...extraTracks]);
       enrichedTracks = await enrichTracksWithSpotifyPreviews(merged);
       chosen = chooseTopTracks(
