@@ -13,6 +13,17 @@ export default function PlaylistDetails() {
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [loading, setLoading] = useState(true);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [trackFeedback, setTrackFeedback] = useState<Record<string, "up" | "down" | null>>({});
+
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   useEffect(() => {
     if (!id) return;
@@ -118,6 +129,44 @@ export default function PlaylistDetails() {
     }
   };
 
+  const handleFeedback = (trackId: string, feedbackType: "up" | "down", e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (feedbackType === "up") {
+      setTrackFeedback((prev) => ({
+        ...prev,
+        [trackId]: prev[trackId] === "up" ? null : "up",
+      }));
+      setToastMessage("Feedback logged. The AI will prioritize similar tracks.");
+    } else {
+      setTrackFeedback((prev) => ({
+        ...prev,
+        [trackId]: "down",
+      }));
+      setToastMessage("Feedback logged. The AI will avoid this track in future sessions.");
+
+      setTimeout(() => {
+        if (!playlist) return;
+
+        const updatedTracks = playlist.tracks.filter((t) => t.id !== trackId);
+        const updatedPlaylist = { ...playlist, tracks: updatedTracks };
+        setPlaylist(updatedPlaylist);
+
+        // Update in localStorage if curated
+        const stored = localStorage.getItem("curatedPlaylists");
+        if (stored) {
+          const curated: Playlist[] = JSON.parse(stored);
+          const idx = curated.findIndex((p) => p.id === playlist.id);
+          if (idx !== -1) {
+            curated[idx] = updatedPlaylist;
+            localStorage.setItem("curatedPlaylists", JSON.stringify(curated));
+            window.dispatchEvent(new Event("curationAdded"));
+          }
+        }
+      }, 300);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col">
       {/* Dynamic Header Controls */}
@@ -197,10 +246,10 @@ export default function PlaylistDetails() {
         </div>
 
         {/* Songs Table Header */}
-        <div className="grid grid-cols-[40px_1fr_80px_60px] border-b border-zinc-800 pb-2 px-4 text-xs font-bold uppercase tracking-wider text-on-surface-variant select-none">
+        <div className="grid grid-cols-[40px_1fr_100px_60px] border-b border-zinc-800 pb-2 px-4 text-xs font-bold uppercase tracking-wider text-on-surface-variant select-none">
           <span className="text-center">#</span>
           <span>Title</span>
-          <span className="text-center">Link</span>
+          <span className="text-center">Feedback</span>
           <span className="text-right">
             <span className="material-symbols-outlined text-lg">schedule</span>
           </span>
@@ -216,7 +265,7 @@ export default function PlaylistDetails() {
               <div
                 key={track.id}
                 onClick={() => handleTrackRowClick(track)}
-                className={`grid grid-cols-[40px_1fr_80px_60px] items-center py-2.5 px-4 rounded-md group hover:bg-white/10 transition-colors cursor-pointer ${
+                className={`grid grid-cols-[40px_1fr_100px_60px] items-center py-2.5 px-4 rounded-md group hover:bg-white/10 transition-colors cursor-pointer ${
                   isTrackLoaded ? "bg-white/5" : ""
                 }`}
               >
@@ -255,21 +304,40 @@ export default function PlaylistDetails() {
                   </div>
                 </div>
 
-                {/* Spotify Web Link */}
-                <div className="flex justify-center" onClick={(e) => e.stopPropagation()}>
-                  {track.url ? (
-                    <a
-                      href={track.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center"
-                      title="Open in Spotify Web Player"
+                {/* Feedback Buttons */}
+                <div className="flex justify-center gap-4" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={(e) => handleFeedback(track.id, 'up', e)}
+                    className={`transition-all duration-200 flex items-center justify-center cursor-pointer hover:scale-125 ${
+                      trackFeedback[track.id] === 'up'
+                        ? 'text-primary'
+                        : 'text-on-surface-variant hover:text-white'
+                    }`}
+                    title="Thumbs Up"
+                  >
+                    <span
+                      className="material-symbols-outlined text-lg"
+                      style={{ fontVariationSettings: trackFeedback[track.id] === 'up' ? "'FILL' 1" : "'FILL' 0" }}
                     >
-                      <span className="material-symbols-outlined text-lg">open_in_new</span>
-                    </a>
-                  ) : (
-                    <span className="text-zinc-700 select-none text-sm">-</span>
-                  )}
+                      thumb_up
+                    </span>
+                  </button>
+                  <button
+                    onClick={(e) => handleFeedback(track.id, 'down', e)}
+                    className={`transition-all duration-200 flex items-center justify-center cursor-pointer hover:scale-125 ${
+                      trackFeedback[track.id] === 'down'
+                        ? 'text-red-500'
+                        : 'text-on-surface-variant hover:text-white'
+                    }`}
+                    title="Thumbs Down"
+                  >
+                    <span
+                      className="material-symbols-outlined text-lg"
+                      style={{ fontVariationSettings: trackFeedback[track.id] === 'down' ? "'FILL' 1" : "'FILL' 0" }}
+                    >
+                      thumb_down
+                    </span>
+                  </button>
                 </div>
 
                 {/* Duration */}
@@ -281,6 +349,14 @@ export default function PlaylistDetails() {
           })}
         </div>
       </div>
+
+      {/* Sleek Custom Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 bg-[#282828] text-white text-xs sm:text-sm font-semibold py-3 px-6 rounded-full shadow-2xl border border-zinc-700 flex items-center gap-2 z-50 animate-fade-in-up select-none">
+          <span className="material-symbols-outlined text-primary text-lg">check_circle</span>
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 }
