@@ -147,13 +147,14 @@ export async function POST(req: Request) {
 
     const items = searchResult.tracks?.items || [];
 
-    // Helper mapper to return standardized track structure: { id, name, artist, url, imageUrl }
+    // Helper mapper to return standardized track structure: { id, name, artist, url, imageUrl, previewUrl }
     const mapTrack = (track: any) => ({
       id: track.id,
       name: track.name,
       artist: track.artists?.[0]?.name || "Unknown Artist",
       url: track.external_urls?.spotify || "",
-      imageUrl: track.album?.images?.[0]?.url || ""
+      imageUrl: track.album?.images?.[0]?.url || "",
+      previewUrl: track.preview_url || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
     });
 
     // 3. Filter tracks based on case-insensitive exclusion list

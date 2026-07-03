@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface Track {
   id: string;
@@ -8,6 +8,7 @@ interface Track {
   artist: string;
   url: string;
   imageUrl?: string;
+  previewUrl?: string;
 }
 
 export default function Home() {
@@ -20,8 +21,11 @@ export default function Home() {
   const [currentTrack, setCurrentTrack] = useState<Partial<Track>>({
     name: "Analog Dreams",
     artist: "Crate Master Vol. 4",
-    imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBjQd6U4epCLv3_s0NIkd3IJ-5dVyvCENZz8UUF3xz-JLVLXsdPCEJJJcb4GMbxDDSj-2nJEHJPCasCpMtRObDp9s4QPnfg9vGYEfg34BEJBDOEc-4obJjKZK1gMuBpuXafncsr-pl4sixNABwn7DAx94ua8xEpEHLA-MwLoOGDAm-45Fj0TC8E4fNg2LPB5LuDPSXZXCTr1-LuBkxWIXmSn2eEX6QBzCiLp_lZ2vt9t9MDCVGoC842HItdTlFYTFdCyqwhXoBpOqv2"
+    imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBjQd6U4epCLv3_s0NIkd3IJ-5dVyvCENZz8UUF3xz-JLVLXsdPCEJJJcb4GMbxDDSj-2nJEHJPCasCpMtRObDp9s4QPnfg9vGYEfg34BEJBDOEc-4obJjKZK1gMuBpuXafncsr-pl4sixNABwn7DAx94ua8xEpEHLA-MwLoOGDAm-45Fj0TC8E4fNg2LPB5LuDPSXZXCTr1-LuBkxWIXmSn2eEX6QBzCiLp_lZ2vt9t9MDCVGoC842HItdTlFYTFdCyqwhXoBpOqv2",
+    previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
   });
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [libraryFilter, setLibraryFilter] = useState<"all" | "playlists" | "artists" | "albums">("all");
   const [volume, setVolume] = useState(80);
@@ -32,19 +36,36 @@ export default function Home() {
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const newVolume = Math.round((clickX / rect.width) * 100);
-    setVolume(Math.max(0, Math.min(100, newVolume)));
+    const clampedVolume = Math.max(0, Math.min(100, newVolume));
+    setVolume(clampedVolume);
+    if (audioRef.current) {
+      audioRef.current.volume = clampedVolume / 100;
+    }
   };
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const percent = Math.round((clickX / rect.width) * 100);
-    setSongProgress(percent);
+    const clampedPercent = Math.max(0, Math.min(100, percent));
+    setSongProgress(clampedPercent);
+    if (audioRef.current && audioRef.current.duration) {
+      audioRef.current.currentTime = (clampedPercent / 100) * audioRef.current.duration;
+    }
   };
 
   useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+  }, []);
+
+  // Backwards compatibility for mock playback ticker (if they toggle play pause without selecting a track)
+  useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isPlaying) {
+    if (isPlaying && !audioRef.current) {
       interval = setInterval(() => {
         setSongProgress((prev) => {
           if (prev >= 100) {
@@ -53,7 +74,7 @@ export default function Home() {
           }
           return prev + 1;
         });
-      }, 1800); // 1.8 seconds per percentage tick to match 3:00 total length
+      }, 1800);
     }
     return () => clearInterval(interval);
   }, [isPlaying]);
@@ -100,10 +121,96 @@ export default function Home() {
     setResults([]);
     setWarning(false);
     setError(null);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setIsPlaying(false);
+    setSongProgress(0);
   };
 
   const handleSelectTrack = (track: Track) => {
     setCurrentTrack(track);
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    const previewSrc = track.previewUrl || (track.id === "analog-dreams-mock" 
+      ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+      : track.id === "neon-pulse-mock"
+      ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+      : track.id === "lofi-cityscape-mock"
+      ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
+      : "");
+
+    if (previewSrc) {
+      const audio = new Audio(previewSrc);
+      audio.volume = volume / 100;
+      audioRef.current = audio;
+      setIsPlaying(true);
+      
+      audio.play().catch(err => {
+        console.log("Autoplay blocked or failed:", err);
+      });
+
+      audio.ontimeupdate = () => {
+        if (audio.duration) {
+          setSongProgress((audio.currentTime / audio.duration) * 100);
+        }
+      };
+
+      audio.onended = () => {
+        setIsPlaying(false);
+        setSongProgress(0);
+      };
+    } else {
+      audioRef.current = null;
+      setIsPlaying(false);
+      setSongProgress(0);
+    }
+  };
+
+  const handlePlayPause = () => {
+    if (!audioRef.current) {
+      const previewSrc = currentTrack.previewUrl || (currentTrack.id === "analog-dreams-mock" 
+        ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+        : currentTrack.id === "neon-pulse-mock"
+        ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+        : currentTrack.id === "lofi-cityscape-mock"
+        ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
+        : "");
+
+      if (previewSrc) {
+        const audio = new Audio(previewSrc);
+        audio.volume = volume / 100;
+        audioRef.current = audio;
+        setIsPlaying(true);
+        audio.play().catch(err => console.log("Play failed:", err));
+
+        audio.ontimeupdate = () => {
+          if (audio.duration) {
+            setSongProgress((audio.currentTime / audio.duration) * 100);
+          }
+        };
+
+        audio.onended = () => {
+          setIsPlaying(false);
+          setSongProgress(0);
+        };
+      } else {
+        setIsPlaying(!isPlaying);
+      }
+      return;
+    }
+
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play().catch(err => console.log("Play failed:", err));
+      setIsPlaying(true);
+    }
   };
 
   return (
@@ -354,7 +461,8 @@ export default function Home() {
                     name: "Analog Dreams",
                     artist: "Synth Master",
                     url: "",
-                    imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBjQd6U4epCLv3_s0NIkd3IJ-5dVyvCENZz8UUF3xz-JLVLXsdPCEJJJcb4GMbxDDSj-2nJEHJPCasCpMtRObDp9s4QPnfg9vGYEfg34BEJBDOEc-4obJjKZK1gMuBpuXafncsr-pl4sixNABwn7DAx94ua8xEpEHLA-MwLoOGDAm-45Fj0TC8E4fNg2LPB5LuDPSXZXCTr1-LuBkxWIXmSn2eEX6QBzCiLp_lZ2vt9t9MDCVGoC842HItdTlFYTFdCyqwhXoBpOqv2"
+                    imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBjQd6U4epCLv3_s0NIkd3IJ-5dVyvCENZz8UUF3xz-JLVLXsdPCEJJJcb4GMbxDDSj-2nJEHJPCasCpMtRObDp9s4QPnfg9vGYEfg34BEJBDOEc-4obJjKZK1gMuBpuXafncsr-pl4sixNABwn7DAx94ua8xEpEHLA-MwLoOGDAm-45Fj0TC8E4fNg2LPB5LuDPSXZXCTr1-LuBkxWIXmSn2eEX6QBzCiLp_lZ2vt9t9MDCVGoC842HItdTlFYTFdCyqwhXoBpOqv2",
+                    previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
                   })}
                 >
                   <div className="relative mb-4">
@@ -377,7 +485,8 @@ export default function Home() {
                     name: "Neon Pulse",
                     artist: "Future Beat",
                     url: "",
-                    imageUrl: ""
+                    imageUrl: "",
+                    previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
                   })}
                 >
                   <div className="relative mb-4">
@@ -400,7 +509,8 @@ export default function Home() {
                     name: "Low-Fi Cityscape",
                     artist: "Beatmaker",
                     url: "",
-                    imageUrl: ""
+                    imageUrl: "",
+                    previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
                   })}
                 >
                   <div className="relative mb-4">
@@ -455,7 +565,7 @@ export default function Home() {
             <button className="text-on-surface-variant hover:text-white transition-colors" title="Shuffle"><span className="material-symbols-outlined text-xl">shuffle</span></button>
             <button className="text-on-surface-variant hover:text-white transition-colors" title="Previous"><span className="material-symbols-outlined text-3xl">skip_previous</span></button>
             <button 
-              onClick={() => setIsPlaying(!isPlaying)}
+              onClick={handlePlayPause}
               className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform"
               title={isPlaying ? "Pause" : "Play"}
             >
@@ -472,8 +582,8 @@ export default function Home() {
               onClick={handleProgressClick}
               className="flex-1 h-1 bg-zinc-800 rounded-full relative group cursor-pointer player-slider"
             >
-              <div className="absolute top-0 left-0 h-full bg-white group-hover:bg-primary rounded-full" style={{ width: `${songProgress}%` }}></div>
-              <div className="absolute top-1/2 w-3 h-3 bg-white rounded-full -translate-y-1/2 -translate-x-1/2 opacity-0 player-slider-thumb shadow-lg" style={{ left: `${songProgress}%` }}></div>
+              <div className="absolute top-0 left-0 h-full bg-white group-hover:bg-primary rounded-full pointer-events-none" style={{ width: `${songProgress}%` }}></div>
+              <div className="absolute top-1/2 w-3 h-3 bg-white rounded-full -translate-y-1/2 -translate-x-1/2 opacity-0 player-slider-thumb shadow-lg pointer-events-none" style={{ left: `${songProgress}%` }}></div>
             </div>
             <span className="text-[11px] text-on-surface-variant w-8">3:00</span>
           </div>
@@ -492,7 +602,7 @@ export default function Home() {
               onClick={handleVolumeClick}
               className="flex-1 h-1 bg-zinc-800 rounded-full relative cursor-pointer group-hover:bg-zinc-700"
             >
-              <div className="absolute top-0 left-0 h-full bg-white group-hover:bg-primary rounded-full" style={{ width: `${volume}%` }}></div>
+              <div className="absolute top-0 left-0 h-full bg-white group-hover:bg-primary rounded-full pointer-events-none" style={{ width: `${volume}%` }}></div>
             </div>
           </div>
           <button className="text-on-surface-variant hover:text-white" title="Fullscreen"><span className="material-symbols-outlined text-lg">fullscreen</span></button>
