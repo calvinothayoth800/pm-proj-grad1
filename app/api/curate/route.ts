@@ -46,6 +46,7 @@ const ALLOWED_GENRES = [
 const ALLOWED_GENRE_SET = new Set<string>(ALLOWED_GENRES);
 const DEFAULT_AGENT_OUTPUT: AgentOutput = {
   seed_genres: "chill,pop",
+  seed_artists: ["Frank Ocean", "SZA", "Khalid"],
   target_energy: 0.5,
   target_valence: 0.5,
   target_danceability: 0.5,
@@ -54,16 +55,21 @@ const DEFAULT_AGENT_OUTPUT: AgentOutput = {
 
 const FILLER_ARTIST_KEYWORDS = [
   "ambience",
+  "auditory music",
   "background",
   "binaural",
   "binaural beats",
   "calm focus",
   "concentration music",
+  "decayed souls",
   "edm music",
   "frequency generators",
+  "fulton street",
+  "hermei",
   "lofi generator",
   "meditation",
   "music for sleep",
+  "must save jane",
   "nature sounds",
   "rain sounds",
   "relaxation",
@@ -74,33 +80,67 @@ const FILLER_ARTIST_KEYWORDS = [
   "study aid",
   "study beats",
   "white noise",
+  "ym mora",
+  "zock",
 ];
 
+const FILLER_TITLE_KEYWORDS = [
+  "lofi",
+  "lo-fi",
+  "beats to",
+  "study music",
+  "sleep music",
+  "white noise",
+  "binaural",
+  "meditation",
+  "asmr",
+  "soundscape",
+  "neon cityscape",
+  "neon cityscapes",
+  "neon nightscape",
+  "neon dreamscape",
+  "cityscape",
+  "nightscape",
+  "dreamscape",
+  "edm dance",
+  "dance dance",
+];
+
+const GENERIC_TITLE_PATTERN =
+  /^(edm|dance|soul|chill|acoustic|electronic|folk|techno|house|ambient)(\s+(dance|beats|music|mix))?$/i;
+
 const FALLBACK_REFERENCE_ARTISTS: Record<string, string[]> = {
-  acoustic: ["Hozier", "Norah Jones", "Iron & Wine"],
-  chill: ["Khalid", "Frank Ocean", "Daniel Caesar"],
+  acoustic: ["Hozier", "Norah Jones", "Iron & Wine", "Noah Kahan"],
+  chill: ["Khalid", "Frank Ocean", "Daniel Caesar", "Snoh Aalegra"],
   club: ["Calvin Harris", "David Guetta", "Disclosure"],
-  dance: ["Dua Lipa", "Calvin Harris", "David Guetta"],
-  edm: ["Calvin Harris", "Avicii", "Zedd"],
-  electronic: ["Disclosure", "Flume", "Rufus Du Sol"],
-  folk: ["Noah Kahan", "Mumford & Sons", "Iron & Wine"],
+  dance: ["Dua Lipa", "Calvin Harris", "David Guetta", "Fred again.."],
+  edm: ["Calvin Harris", "Avicii", "Zedd", "Disclosure"],
+  electronic: ["Disclosure", "Flume", "Rufus Du Sol", "Fred again.."],
+  folk: ["Noah Kahan", "Mumford & Sons", "Iron & Wine", "Hozier"],
   funk: ["Anderson .Paak", "Steve Lacy", "Thundercat"],
   house: ["Disclosure", "Calvin Harris", "Fred again.."],
-  "hip-hop": ["Kendrick Lamar", "J. Cole", "Tyler, The Creator"],
-  indie: ["The xx", "Bon Iver", "Phoebe Bridgers"],
+  "hip-hop": ["Kendrick Lamar", "J. Cole", "Tyler, The Creator", "Isaiah Rashad"],
+  indie: ["The xx", "Bon Iver", "Phoebe Bridgers", "Arctic Monkeys"],
   jazz: ["Robert Glasper", "Norah Jones", "Chet Baker"],
-  pop: ["The Weeknd", "SZA", "Dua Lipa"],
-  "r-n-b": ["Daniel Caesar", "Giveon", "SZA", "Frank Ocean"],
-  romance: ["Daniel Caesar", "Giveon", "Snoh Aalegra"],
-  soul: ["Leon Bridges", "Snoh Aalegra", "Daniel Caesar"],
+  pop: ["The Weeknd", "SZA", "Dua Lipa", "Taylor Swift"],
+  "r-n-b": ["Daniel Caesar", "Giveon", "SZA", "Frank Ocean", "Snoh Aalegra"],
+  romance: ["Daniel Caesar", "Giveon", "Snoh Aalegra", "H.E.R."],
+  rock: ["Arctic Monkeys", "Foo Fighters", "The Killers"],
+  sad: ["Phoebe Bridgers", "Bon Iver", "Lana Del Rey"],
+  soul: ["Leon Bridges", "Snoh Aalegra", "Daniel Caesar", "Alicia Keys"],
+  "synth-pop": ["The Weeknd", "Kavinsky", "CHVRCHES", "M83", "The Midnight"],
   techno: ["Charlotte de Witte", "Amelie Lens", "Adam Beyer"],
 };
+
+const MIN_TRACK_POPULARITY = 15;
+const BLOCKED_PREVIEW_HOSTS = ["soundhelix.com"];
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 
 interface AgentOutput {
   seed_genres: string;
+  seed_artists: string[];
   target_energy: number;
   target_valence: number;
   target_danceability: number;
@@ -145,6 +185,18 @@ function sanitizeKeywords(value: unknown) {
   ).slice(0, 12);
 }
 
+function sanitizeArtists(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  return Array.from(
+    new Set(
+      value
+        .map((artist) => String(artist).trim())
+        .filter((artist) => artist.length > 1)
+    )
+  ).slice(0, 6);
+}
+
 function sanitizeAgentOutput(value: Partial<AgentOutput>): AgentOutput {
   const rawSeedGenres =
     typeof value.seed_genres === "string"
@@ -157,11 +209,17 @@ function sanitizeAgentOutput(value: Partial<AgentOutput>): AgentOutput {
     .filter((genre) => ALLOWED_GENRE_SET.has(genre))
     .slice(0, 3);
 
+  const seedArtists = sanitizeArtists(value.seed_artists);
+
   return {
     seed_genres:
       seedGenres.length > 0
         ? seedGenres.join(",")
         : DEFAULT_AGENT_OUTPUT.seed_genres,
+    seed_artists:
+      seedArtists.length > 0
+        ? seedArtists
+        : DEFAULT_AGENT_OUTPUT.seed_artists,
     target_energy: clamp01(
       value.target_energy,
       DEFAULT_AGENT_OUTPUT.target_energy
@@ -187,9 +245,7 @@ function mapTrack(track: SpotifyTrack): MappedTrack | null {
     artist: track.artists?.[0]?.name || "Unknown Artist",
     url: track.external_urls?.spotify || "",
     imageUrl: track.album?.images?.[0]?.url || "",
-    previewUrl:
-      track.preview_url ||
-      "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+    previewUrl: track.preview_url || "",
     popularity: track.popularity || 0,
   };
 }
@@ -208,7 +264,44 @@ function dedupeTracks(tracks: MappedTrack[]) {
   return uniqueTracks;
 }
 
-function filterTracks(tracks: MappedTrack[], excludeKeywords: string[]) {
+function shuffleItems<T>(items: T[]) {
+  const shuffled = [...items];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [
+      shuffled[swapIndex],
+      shuffled[index],
+    ];
+  }
+
+  return shuffled;
+}
+
+function isValidSpotifyPreviewUrl(url: string) {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  if (BLOCKED_PREVIEW_HOSTS.some((host) => lower.includes(host))) return false;
+  return lower.includes("scdn.co/mp3-preview") || lower.includes("spotify.com");
+}
+
+function isKeywordStuffedTitle(title: string, prompt: string) {
+  const promptWords = prompt
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((word) => word.length > 3);
+  if (promptWords.length === 0) return false;
+
+  const titleLower = title.toLowerCase();
+  const matchedWords = promptWords.filter((word) => titleLower.includes(word));
+  return matchedWords.length >= 2;
+}
+
+function filterTracks(
+  tracks: MappedTrack[],
+  excludeKeywords: string[],
+  prompt = ""
+) {
   return tracks.filter((track) => {
     const haystack = `${track.name} ${track.artist}`.toLowerCase();
 
@@ -218,89 +311,108 @@ function filterTracks(tracks: MappedTrack[], excludeKeywords: string[]) {
     });
     if (matchesExclusion) return false;
 
-    const isFillerArtist = FILLER_ARTIST_KEYWORDS.some((keyword) =>
-      track.artist.toLowerCase().includes(keyword)
-    );
+    const artistLower = track.artist.toLowerCase();
+    const titleLower = track.name.toLowerCase();
 
-    return !isFillerArtist;
+    const isFillerArtist = FILLER_ARTIST_KEYWORDS.some((keyword) =>
+      artistLower.includes(keyword)
+    );
+    if (isFillerArtist) return false;
+
+    const isFillerTitle = FILLER_TITLE_KEYWORDS.some((keyword) =>
+      titleLower.includes(keyword)
+    );
+    if (isFillerTitle) return false;
+
+    if (GENERIC_TITLE_PATTERN.test(track.name.trim())) return false;
+
+    if (prompt && isKeywordStuffedTitle(track.name, prompt)) return false;
+
+    if (track.popularity < MIN_TRACK_POPULARITY) return false;
+
+    if (track.previewUrl && !isValidSpotifyPreviewUrl(track.previewUrl)) return false;
+
+    return true;
   });
+}
+
+function scoreTrackForSelection(track: MappedTrack) {
+  let score = track.popularity;
+  if (track.previewUrl) score += 60;
+  score += Math.random() * 25;
+  return score;
 }
 
 function chooseTopTracks(
   tracks: MappedTrack[],
   excludeKeywords: string[],
+  prompt = "",
   preferredCount = 5
 ) {
-  const filteredTracks = filterTracks(tracks, excludeKeywords);
+  const filteredTracks = filterTracks(tracks, excludeKeywords, prompt);
 
   if (filteredTracks.length === 0 && tracks.length > 0) {
+    const relaxed = [...tracks]
+      .filter((track) => !prompt || !isKeywordStuffedTitle(track.name, prompt))
+      .sort((a, b) => b.popularity - a.popularity);
+
     return {
-      tracks: tracks.slice(0, 3),
+      tracks: relaxed.slice(0, preferredCount),
       warning: true,
     };
   }
 
-  const sortedTracks = [...filteredTracks].sort(
-    (a, b) => b.popularity - a.popularity
+  const withPreview = filteredTracks.filter((track) => track.previewUrl);
+  const withoutPreview = filteredTracks.filter((track) => !track.previewUrl);
+  const candidatePool =
+    withPreview.length >= preferredCount
+      ? withPreview
+      : [...withPreview, ...withoutPreview];
+
+  const rankedTracks = [...candidatePool].sort(
+    (a, b) => scoreTrackForSelection(b) - scoreTrackForSelection(a)
   );
 
+  const diverseTracks: MappedTrack[] = [];
+  const deferredTracks: MappedTrack[] = [];
+  const seenArtists = new Set<string>();
+
+  for (const track of rankedTracks) {
+    const artistKey = track.artist.toLowerCase();
+    if (!seenArtists.has(artistKey)) {
+      seenArtists.add(artistKey);
+      diverseTracks.push(track);
+    } else {
+      deferredTracks.push(track);
+    }
+  }
+
+  const chosen = [...diverseTracks, ...deferredTracks].slice(0, preferredCount);
+  const playableCount = chosen.filter((track) => track.previewUrl).length;
+
   return {
-    tracks: sortedTracks.slice(0, preferredCount),
-    warning: sortedTracks.length < 3,
+    tracks: chosen,
+    warning: chosen.length < 3 || playableCount < Math.min(3, chosen.length),
   };
 }
 
-function genreToSearchTerm(genre: string) {
-  const genreMap: Record<string, string> = {
-    "hip-hop": "hip hop",
-    "r-n-b": "r&b",
-    "synth-pop": "synth pop",
-  };
-
-  return genreMap[genre] || genre;
-}
-
-function getPositivePromptSlice(prompt: string) {
-  return prompt
-    .split(/\b(?:no|not|without|exclude|avoid|absolutely no)\b/i)[0]
-    .replace(/[^\w\s&-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function buildFallbackQueries(prompt: string, agentConfig: AgentOutput) {
+function buildSemanticSearchQueries(agentConfig: AgentOutput) {
   const seedGenres = agentConfig.seed_genres
     .split(",")
     .map((genre) => genre.trim())
     .filter(Boolean);
-  const seedTerms = seedGenres.map(genreToSearchTerm);
-  const referenceArtists = seedGenres.flatMap(
-    (genre) => FALLBACK_REFERENCE_ARTISTS[genre] || []
+
+  const referenceArtists = shuffleItems(
+    seedGenres.flatMap((genre) => FALLBACK_REFERENCE_ARTISTS[genre] || [])
   );
-  const positivePrompt = getPositivePromptSlice(prompt);
-  const queries = new Set<string>();
 
-  for (const artist of referenceArtists.slice(0, 4)) {
-    queries.add(artist);
-  }
+  const artistPool = Array.from(
+    new Set(shuffleItems([...agentConfig.seed_artists, ...referenceArtists]))
+  );
 
-  const primaryGenre = seedTerms[0] || "chill";
-  if (agentConfig.target_energy <= 0.45) {
-    queries.add(`late night ${primaryGenre}`);
-  }
-  if (
-    agentConfig.seed_genres.includes("romance") ||
-    positivePrompt.toLowerCase().includes("romantic")
-  ) {
-    queries.add(`romantic ${primaryGenre}`);
-  }
-  if (agentConfig.target_valence <= 0.45) {
-    queries.add(`moody ${primaryGenre}`);
-  }
-  if (seedTerms.length > 0) queries.add(seedTerms.join(" "));
-  if (positivePrompt) queries.add(positivePrompt);
+  const queries = artistPool.slice(0, 10).map((artist) => `artist:"${artist}"`);
 
-  return Array.from(queries).slice(0, 7);
+  return shuffleItems(queries);
 }
 
 async function getSpotifyToken(): Promise<string> {
@@ -351,22 +463,25 @@ async function getGroqCurationAgent(prompt: string): Promise<AgentOutput> {
   }
 
   try {
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${groqApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        messages: [
-          {
-            role: "system",
-            content: `You are a music API translation agent. Translate the user's emotional prompt into strict Spotify Audio Features. You MUST return ONLY a valid JSON object.
+    const response = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${groqApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "llama-3.1-8b-instant",
+          messages: [
+            {
+              role: "system",
+              content: `You are an expert Spotify API parameter generator. Translate the user's emotional vibe into strict Spotify parameters. Return ONLY valid JSON.
 
-Return this schema exactly:
+Schema:
 {
   "seed_genres": "comma-separated string of 1 to 3 genres",
+  "seed_artists": ["artist name", "artist name"],
   "target_energy": 0.0,
   "target_valence": 0.0,
   "target_danceability": 0.0,
@@ -374,23 +489,28 @@ Return this schema exactly:
 }
 
 Rules:
-1. "seed_genres" MUST contain exactly 1 to 3 genres. ONLY pick from this allowed list, never invent genres: [${ALLOWED_GENRES.join(", ")}].
-2. "target_energy" is a float from 0.0 calm to 1.0 intense.
-3. "target_valence" is a float from 0.0 depressed/dark to 1.0 euphoric/bright.
-4. "target_danceability" is a float from 0.0 ambient/freeform to 1.0 club/groove.
-5. "exclude_keywords" must include artists, sub-genres, production styles, or words the user says or implies they do NOT want.
-6. Infer semantics. Do not hardcode examples. For late-night romantic melodic prompts, generally prefer lower energy, moderate danceability, warmer intimate genres like r-n-b, soul, romance, chill, or acoustic. If the user says not synthy, avoid synth-pop/electronic/edm/techno seeds and add synth-related exclude keywords.
-7. Prefer vocal, recognizable songs unless the prompt explicitly asks for instrumental/background music.`,
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.1,
-      }),
-    });
+1. "seed_genres" MUST use 1 to 3 genres ONLY from: [${ALLOWED_GENRES.join(", ")}].
+2. "seed_artists" MUST be 3 to 5 real, recognizable artists that match the vibe. Never invent fake artists.
+3. "target_energy" is 0.0 calm to 1.0 intense.
+4. "target_valence" is 0.0 dark to 1.0 euphoric.
+5. "target_danceability" is 0.0 ambient to 1.0 club.
+6. "exclude_keywords" must include artists, sub-genres, or production styles the user rejects.
+7. Infer semantics from the prompt — translate mood and energy, never literal scene keywords. "Late night driving through a neon city" means nocturnal cinematic electronic/synth-pop (e.g. The Weeknd, Kavinsky, M83) with moderate energy — NOT a search for songs titled "neon cityscape".
+8. Late-night romantic melodic vibes should use lower energy, warmer genres like r-n-b, soul, romance, chill, or acoustic, and artists like Daniel Caesar, Giveon, Snoh Aalegra, Frank Ocean, or SZA.
+9. If the user rejects synthy/electronic sounds, exclude synth-pop, electronic, edm, techno and add synth-related exclude keywords.
+10. Never return generic filler artists or royalty-free style names.
+11. NEVER use the user's prompt words as search keywords. You are generating API parameters only.`,
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.35,
+        }),
+      }
+    );
 
     if (!response.ok) {
       throw new Error(`Groq API returned ${response.status}`);
@@ -440,18 +560,18 @@ async function fetchSpotifyRecommendations(
     .filter((track): track is MappedTrack => Boolean(track));
 }
 
-async function searchSpotifyFallback(
-  prompt: string,
+async function searchSpotifySemantic(
   agentConfig: AgentOutput,
   token: string
 ) {
-  const queries = buildFallbackQueries(prompt, agentConfig);
+  const queries = buildSemanticSearchQueries(agentConfig);
   const requests = queries.map(async (query) => {
     const params = new URLSearchParams({
       q: query,
       type: "track",
       limit: "10",
       market: "US",
+      offset: String(Math.floor(Math.random() * 10)),
     });
 
     const response = await fetch(
@@ -466,7 +586,7 @@ async function searchSpotifyFallback(
     if (!response.ok) {
       const errorText = await response.text();
       console.error(
-        `Spotify fallback search failed for "${query}": ${response.status} ${errorText}`
+        `Spotify semantic search failed for "${query}": ${response.status} ${errorText}`
       );
       return [];
     }
@@ -474,7 +594,9 @@ async function searchSpotifyFallback(
     const data = await response.json();
     return ((data.tracks?.items || []) as SpotifyTrack[])
       .map(mapTrack)
-      .filter((track): track is MappedTrack => Boolean(track));
+      .filter((track): track is MappedTrack => Boolean(track))
+      .sort((a, b) => b.popularity - a.popularity)
+      .slice(0, 4);
   });
 
   const results = await Promise.all(requests);
@@ -491,6 +613,47 @@ async function searchSpotifyFallback(
   return dedupeTracks(interleavedTracks);
 }
 
+async function lookupSpotifyEmbedPreview(trackId: string): Promise<string> {
+  try {
+    const response = await fetch(
+      `https://open.spotify.com/embed/track/${trackId}`,
+      {
+        headers: {
+          "User-Agent": "CrateDigger/1.0",
+        },
+      }
+    );
+
+    if (!response.ok) return "";
+
+    const html = await response.text();
+    const match = html.match(/https:\/\/p\.scdn\.co\/mp3-preview\/[^"\\]+/);
+    return match?.[0] ?? "";
+  } catch (error) {
+    console.error(`Spotify embed preview lookup failed for ${trackId}:`, error);
+    return "";
+  }
+}
+
+async function enrichTracksWithSpotifyPreviews(
+  tracks: MappedTrack[]
+): Promise<MappedTrack[]> {
+  const enriched: MappedTrack[] = [];
+
+  for (const track of tracks) {
+    if (track.previewUrl) {
+      enriched.push(track);
+      continue;
+    }
+
+    const previewUrl = await lookupSpotifyEmbedPreview(track.id);
+    const safePreview = isValidSpotifyPreviewUrl(previewUrl) ? previewUrl : "";
+    enriched.push(safePreview ? { ...track, previewUrl: safePreview } : track);
+  }
+
+  return enriched;
+}
+
 export async function POST(req: Request) {
   try {
     const { prompt } = await req.json();
@@ -502,27 +665,48 @@ export async function POST(req: Request) {
     const agentConfig = await getGroqCurationAgent(cleanPrompt);
     const token = await getSpotifyToken();
 
-    let source: "recommendations" | "search_fallback" = "recommendations";
+    let source: "recommendations" | "semantic_search" = "semantic_search";
     let warning = false;
     let tracks: MappedTrack[] = [];
 
     try {
       tracks = await fetchSpotifyRecommendations(agentConfig, token);
+      source = "recommendations";
     } catch (error) {
-      console.error("Recommendations unavailable; using search fallback:", error);
-      source = "search_fallback";
+      console.error(
+        "Recommendations unavailable; using semantic artist search:",
+        error
+      );
+      source = "semantic_search";
       warning = true;
-      tracks = await searchSpotifyFallback(cleanPrompt, agentConfig, token);
+      tracks = await searchSpotifySemantic(agentConfig, token);
     }
 
     if (tracks.length === 0) {
-      source = "search_fallback";
+      source = "semantic_search";
       warning = true;
-      tracks = await searchSpotifyFallback(cleanPrompt, agentConfig, token);
+      tracks = await searchSpotifySemantic(agentConfig, token);
     }
 
     const uniqueTracks = dedupeTracks(tracks);
-    const chosen = chooseTopTracks(uniqueTracks, agentConfig.exclude_keywords);
+    let enrichedTracks = await enrichTracksWithSpotifyPreviews(uniqueTracks);
+    let chosen = chooseTopTracks(
+      enrichedTracks,
+      agentConfig.exclude_keywords,
+      cleanPrompt
+    );
+
+    const playableCount = chosen.tracks.filter((track) => track.previewUrl).length;
+    if (playableCount < 3 && uniqueTracks.length > 0) {
+      const extraTracks = await searchSpotifySemantic(agentConfig, token);
+      const merged = dedupeTracks([...enrichedTracks, ...extraTracks]);
+      enrichedTracks = await enrichTracksWithSpotifyPreviews(merged);
+      chosen = chooseTopTracks(
+        enrichedTracks,
+        agentConfig.exclude_keywords,
+        cleanPrompt
+      );
+    }
 
     return NextResponse.json({
       tracks: chosen.tracks,

@@ -82,23 +82,46 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [volume]);
 
+  const stopCurrentAudio = () => {
+    if (!audioRef.current) return;
+
+    audioRef.current.pause();
+    audioRef.current.onended = null;
+    audioRef.current.src = "";
+    audioRef.current.load();
+    audioRef.current = null;
+  };
+
   const playTrack = (track: Track, newQueue?: Track[]) => {
+    const activeQueue = newQueue ?? queueRef.current;
+
     if (newQueue) {
       setQueue(newQueue);
       queueRef.current = newQueue;
     }
 
-    setCurrentTrack(track);
-    currentTrackRef.current = track;
-
-    if (audioRef.current) {
-      audioRef.current.pause();
+    let trackToPlay = track;
+    if (!trackToPlay.previewUrl && activeQueue.length > 0) {
+      const startIndex = activeQueue.findIndex((item) => item.id === track.id);
+      for (let step = 1; step < activeQueue.length; step += 1) {
+        const candidate =
+          activeQueue[(startIndex + step) % activeQueue.length];
+        if (candidate.previewUrl) {
+          trackToPlay = candidate;
+          break;
+        }
+      }
     }
 
-    // Determine preview source URL
-    let previewSrc = track.previewUrl;
+    setCurrentTrack(trackToPlay);
+    currentTrackRef.current = trackToPlay;
+    stopCurrentAudio();
+
+    const previewSrc = trackToPlay.previewUrl;
     if (!previewSrc) {
-      previewSrc = "https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3";
+      setIsPlaying(false);
+      setSongProgress(0);
+      return;
     }
 
     const audio = new Audio(previewSrc);
@@ -109,6 +132,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     audio.play().catch((err) => {
       console.log("Audio autoplay blocked or failed:", err);
+      setIsPlaying(false);
     });
 
     audio.onended = () => {
