@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Track {
   id: string;
@@ -17,12 +17,46 @@ export default function Home() {
   const [warning, setWarning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Keep track of the current playing song metadata in the footer player bar
   const [currentTrack, setCurrentTrack] = useState<Partial<Track>>({
     name: "Analog Dreams",
     artist: "Crate Master Vol. 4",
     imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBjQd6U4epCLv3_s0NIkd3IJ-5dVyvCENZz8UUF3xz-JLVLXsdPCEJJJcb4GMbxDDSj-2nJEHJPCasCpMtRObDp9s4QPnfg9vGYEfg34BEJBDOEc-4obJjKZK1gMuBpuXafncsr-pl4sixNABwn7DAx94ua8xEpEHLA-MwLoOGDAm-45Fj0TC8E4fNg2LPB5LuDPSXZXCTr1-LuBkxWIXmSn2eEX6QBzCiLp_lZ2vt9t9MDCVGoC842HItdTlFYTFdCyqwhXoBpOqv2"
   });
+
+  const [libraryFilter, setLibraryFilter] = useState<"all" | "playlists" | "artists" | "albums">("all");
+  const [volume, setVolume] = useState(80);
+  const [songProgress, setSongProgress] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const handleVolumeClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const newVolume = Math.round((clickX / rect.width) * 100);
+    setVolume(Math.max(0, Math.min(100, newVolume)));
+  };
+
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const percent = Math.round((clickX / rect.width) * 100);
+    setSongProgress(percent);
+  };
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isPlaying) {
+      interval = setInterval(() => {
+        setSongProgress((prev) => {
+          if (prev >= 100) {
+            setIsPlaying(false);
+            return 0;
+          }
+          return prev + 1;
+        });
+      }, 1800); // 1.8 seconds per percentage tick to match 3:00 total length
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying]);
 
   const handleCurate = async () => {
     if (!prompt.trim()) return;
@@ -101,42 +135,72 @@ export default function Home() {
           </div>
           {/* Library Tags */}
           <div className="px-4 pb-2 flex gap-2 overflow-x-hidden">
-            <span className="bg-[#2a2a2a] px-3 py-1 rounded-full text-xs font-medium cursor-pointer hover:bg-[#3e3e3e] transition-colors">Playlists</span>
-            <span className="bg-[#2a2a2a] px-3 py-1 rounded-full text-xs font-medium cursor-pointer hover:bg-[#3e3e3e] transition-colors">Artists</span>
-            <span className="bg-[#2a2a2a] px-3 py-1 rounded-full text-xs font-medium cursor-pointer hover:bg-[#3e3e3e] transition-colors">Albums</span>
+            <span 
+              onClick={() => setLibraryFilter(libraryFilter === "playlists" ? "all" : "playlists")}
+              className={`px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors ${
+                libraryFilter === "playlists" ? "bg-white text-black" : "bg-[#2a2a2a] text-white hover:bg-[#3e3e3e]"
+              }`}
+            >
+              Playlists
+            </span>
+            <span 
+              onClick={() => setLibraryFilter(libraryFilter === "artists" ? "all" : "artists")}
+              className={`px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors ${
+                libraryFilter === "artists" ? "bg-white text-black" : "bg-[#2a2a2a] text-white hover:bg-[#3e3e3e]"
+              }`}
+            >
+              Artists
+            </span>
+            <span 
+              onClick={() => setLibraryFilter(libraryFilter === "albums" ? "all" : "albums")}
+              className={`px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors ${
+                libraryFilter === "albums" ? "bg-white text-black" : "bg-[#2a2a2a] text-white hover:bg-[#3e3e3e]"
+              }`}
+            >
+              Albums
+            </span>
           </div>
           {/* Library List */}
           <div className="flex-1 overflow-y-auto custom-scrollbar px-2 py-2">
-            <div className="flex items-center gap-3 p-2 rounded-md hover:bg-white/5 cursor-pointer">
-              <div className="w-12 h-12 bg-primary rounded flex items-center justify-center">
-                <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
+            {(libraryFilter === "all" || libraryFilter === "playlists") && (
+              <div className="flex items-center gap-3 p-2 rounded-md hover:bg-white/5 cursor-pointer">
+                <div className="w-12 h-12 bg-primary rounded flex items-center justify-center">
+                  <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-white">Liked Songs</span>
+                  <span className="text-xs text-on-surface-variant flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px] text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>keep</span>
+                    Playlist • 1,245 songs
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-white">Liked Songs</span>
-                <span className="text-xs text-on-surface-variant flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[14px] text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>keep</span>
-                  Playlist • 1,245 songs
-                </span>
+            )}
+            {(libraryFilter === "all" || libraryFilter === "playlists") && (
+              <div className="flex items-center gap-3 p-2 rounded-md bg-white/10 cursor-pointer">
+                <div className="w-12 h-12 bg-[#1db954]/20 rounded flex items-center justify-center">
+                  <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>album</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-white">Crate Digger AI</span>
+                  <span className="text-xs text-on-surface-variant">Feature • Curate Vibe</span>
+                </div>
               </div>
-            </div>
-            {/* Crate Digger Item */}
-            <div className="flex items-center gap-3 p-2 rounded-md bg-white/10 cursor-pointer">
-              <div className="w-12 h-12 bg-[#1db954]/20 rounded flex items-center justify-center">
-                <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>album</span>
+            )}
+            {(libraryFilter === "all" || libraryFilter === "albums") && (
+              <div className="flex items-center gap-3 p-2 rounded-md hover:bg-white/5 cursor-pointer opacity-70">
+                <img className="w-12 h-12 rounded object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFqg3Lmx2d40nxulFeqoAZx5YxxVJPraayqWajoMK1Yas8ReIzTug-BxIlvsBeToZgP5zmHf7DxsLXpzCqD0caLBQoNC5yBLbPRrm-eL6VT6T4p4oJpt6BFCZPTqT7_1L1eJciMQw6GIumKWiHyOCLqHU-1VvAz310unx_Xl5bVBUN-L5t3gHrbnVlGC6ISXDYOkGIur2-KL-1PDRWPn3bW1A0n2kyeEzMSsnMT9I0tAmgMN2t8A1mMgdNW-Qj6XNKyRx6udtzgw1-"/>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-white">Midnight City</span>
+                  <span className="text-xs text-on-surface-variant">Album • M83</span>
+                </div>
               </div>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-white">Crate Digger AI</span>
-                <span className="text-xs text-on-surface-variant">Feature • Curate Vibe</span>
+            )}
+            {libraryFilter === "artists" && (
+              <div className="p-4 text-xs text-on-surface-variant text-center">
+                No artists followed yet.
               </div>
-            </div>
-            {/* Dummy Items */}
-            <div className="flex items-center gap-3 p-2 rounded-md hover:bg-white/5 cursor-pointer opacity-70">
-              <img className="w-12 h-12 rounded object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFqg3Lmx2d40nxulFeqoAZx5YxxVJPraayqWajoMK1Yas8ReIzTug-BxIlvsBeToZgP5zmHf7DxsLXpzCqD0caLBQoNC5yBLbPRrm-eL6VT6T4p4oJpt6BFCZPTqT7_1L1eJciMQw6GIumKWiHyOCLqHU-1VvAz310unx_Xl5bVBUN-L5t3gHrbnVlGC6ISXDYOkGIur2-KL-1PDRWPn3bW1A0n2kyeEzMSsnMT9I0tAmgMN2t8A1mMgdNW-Qj6XNKyRx6udtzgw1-"/>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-white">Midnight City</span>
-                <span className="text-xs text-on-surface-variant">Album • M83</span>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </aside>
@@ -150,7 +214,7 @@ export default function Home() {
             <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center opacity-50"><span className="material-symbols-outlined text-white">chevron_right</span></button>
           </div>
           <div className="flex items-center gap-4">
-            <button className="bg-white text-black px-4 py-1.5 rounded-full text-sm font-bold hover:scale-105 transition-transform">Explore Premium</button>
+            <button className="bg-white text-black px-2.5 py-1 rounded-full text-xs font-bold hover:scale-105 transition-transform shrink-0">Explore Premium</button>
             <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"><span className="material-symbols-outlined text-white text-[20px]">notifications</span></button>
             <button className="w-8 h-8 rounded-full bg-black/40 p-1 flex items-center justify-center hover:bg-black/60 transition-colors">
               <div className="w-full h-full rounded-full bg-zinc-600"></div>
@@ -350,17 +414,6 @@ export default function Home() {
                   <h4 className="font-bold text-sm truncate mb-1">Low-Fi Cityscape</h4>
                   <p className="text-xs text-on-surface-variant line-clamp-2">Relaxing beats and atmospheric background noise.</p>
                 </div>
-
-                {/* Result Card 4 (Skeleton style) */}
-                <div className="spotify-card p-4 rounded-lg group cursor-pointer relative animate-pulse">
-                  <div className="relative mb-4">
-                    <div className="aspect-square bg-zinc-800 rounded-md shadow-2xl flex items-center justify-center">
-                      <span className="material-symbols-outlined text-6xl text-zinc-700">insights</span>
-                    </div>
-                  </div>
-                  <h4 className="font-bold text-sm truncate mb-1 text-zinc-600">Curating...</h4>
-                  <p className="text-xs text-zinc-700 line-clamp-2">Discover new suggestions tailored dynamically to your prompt.</p>
-                </div>
               </div>
             )}
           </div>
@@ -391,7 +444,7 @@ export default function Home() {
             )}
             <span className="text-[11px] text-on-surface-variant truncate">{currentTrack.artist}</span>
           </div>
-          <button className="text-on-surface-variant hover:text-primary transition-colors ml-2">
+          <button className="text-on-surface-variant hover:text-primary transition-colors ml-2" title="Save to Your Library">
             <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
           </button>
         </div>
@@ -399,19 +452,28 @@ export default function Home() {
         {/* Player Controls */}
         <div className="flex flex-col items-center gap-2 max-w-[40%] w-full">
           <div className="flex items-center gap-6">
-            <button className="text-on-surface-variant hover:text-white transition-colors"><span className="material-symbols-outlined text-xl">shuffle</span></button>
-            <button className="text-on-surface-variant hover:text-white transition-colors"><span className="material-symbols-outlined text-3xl">skip_previous</span></button>
-            <button className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform">
-              <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
+            <button className="text-on-surface-variant hover:text-white transition-colors" title="Shuffle"><span className="material-symbols-outlined text-xl">shuffle</span></button>
+            <button className="text-on-surface-variant hover:text-white transition-colors" title="Previous"><span className="material-symbols-outlined text-3xl">skip_previous</span></button>
+            <button 
+              onClick={() => setIsPlaying(!isPlaying)}
+              className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform"
+              title={isPlaying ? "Pause" : "Play"}
+            >
+              <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>{isPlaying ? "pause" : "play_arrow"}</span>
             </button>
-            <button className="text-on-surface-variant hover:text-white transition-colors"><span className="material-symbols-outlined text-3xl">skip_next</span></button>
-            <button className="text-on-surface-variant hover:text-white transition-colors"><span className="material-symbols-outlined text-xl">repeat</span></button>
+            <button className="text-on-surface-variant hover:text-white transition-colors" title="Next"><span className="material-symbols-outlined text-3xl">skip_next</span></button>
+            <button className="text-on-surface-variant hover:text-white transition-colors" title="Repeat"><span className="material-symbols-outlined text-xl">repeat</span></button>
           </div>
           <div className="w-full flex items-center gap-2">
-            <span className="text-[11px] text-on-surface-variant w-8 text-right">0:00</span>
-            <div className="flex-1 h-1 bg-zinc-800 rounded-full relative group cursor-pointer player-slider">
-              <div className="absolute top-0 left-0 h-full w-[0%] bg-white group-hover:bg-primary rounded-full"></div>
-              <div className="absolute top-1/2 left-[0%] w-3 h-3 bg-white rounded-full -translate-y-1/2 -translate-x-1/2 opacity-0 player-slider-thumb shadow-lg"></div>
+            <span className="text-[11px] text-on-surface-variant w-8 text-right">
+              {Math.floor((songProgress * 1.8) / 60)}:{Math.floor((songProgress * 1.8) % 60) < 10 ? "0" : ""}{Math.floor((songProgress * 1.8) % 60)}
+            </span>
+            <div 
+              onClick={handleProgressClick}
+              className="flex-1 h-1 bg-zinc-800 rounded-full relative group cursor-pointer player-slider"
+            >
+              <div className="absolute top-0 left-0 h-full bg-white group-hover:bg-primary rounded-full" style={{ width: `${songProgress}%` }}></div>
+              <div className="absolute top-1/2 w-3 h-3 bg-white rounded-full -translate-y-1/2 -translate-x-1/2 opacity-0 player-slider-thumb shadow-lg" style={{ left: `${songProgress}%` }}></div>
             </div>
             <span className="text-[11px] text-on-surface-variant w-8">3:00</span>
           </div>
@@ -419,16 +481,21 @@ export default function Home() {
 
         {/* Utilities */}
         <div className="flex items-center justify-end gap-3 w-[30%]">
-          <button className="text-on-surface-variant hover:text-white"><span className="material-symbols-outlined text-lg">mic</span></button>
-          <button className="text-on-surface-variant hover:text-white"><span className="material-symbols-outlined text-lg">queue_music</span></button>
-          <button className="text-on-surface-variant hover:text-white"><span className="material-symbols-outlined text-lg">devices</span></button>
+          <button className="text-on-surface-variant hover:text-white" title="Lyrics"><span className="material-symbols-outlined text-lg">mic</span></button>
+          <button className="text-on-surface-variant hover:text-white" title="Queue"><span className="material-symbols-outlined text-lg">queue_music</span></button>
+          <button className="text-on-surface-variant hover:text-white" title="Connect to a device"><span className="material-symbols-outlined text-lg">devices</span></button>
           <div className="flex items-center gap-2 group w-32">
-            <span className="material-symbols-outlined text-on-surface-variant text-lg">volume_up</span>
-            <div className="flex-1 h-1 bg-zinc-800 rounded-full relative cursor-pointer group-hover:bg-zinc-700">
-              <div className="absolute top-0 left-0 h-full w-[80%] bg-white group-hover:bg-primary rounded-full"></div>
+            <span className="material-symbols-outlined text-on-surface-variant text-lg">
+              {volume === 0 ? "volume_off" : volume < 50 ? "volume_down" : "volume_up"}
+            </span>
+            <div 
+              onClick={handleVolumeClick}
+              className="flex-1 h-1 bg-zinc-800 rounded-full relative cursor-pointer group-hover:bg-zinc-700"
+            >
+              <div className="absolute top-0 left-0 h-full bg-white group-hover:bg-primary rounded-full" style={{ width: `${volume}%` }}></div>
             </div>
           </div>
-          <button className="text-on-surface-variant hover:text-white"><span className="material-symbols-outlined text-lg">fullscreen</span></button>
+          <button className="text-on-surface-variant hover:text-white" title="Fullscreen"><span className="material-symbols-outlined text-lg">fullscreen</span></button>
         </div>
       </footer>
     </div>
