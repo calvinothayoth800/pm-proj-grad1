@@ -210,7 +210,10 @@ export default function PlaylistDetails() {
 
         const curateData = await curateRes.json();
         const existingIds = new Set(updatedTracks.map((track) => track.id));
-        const addCount = Math.min(10, Math.max(1, Number(plan.add_count) || 3));
+        const remainingCount = updatedTracks.length;
+        const targetSize = Math.max(5, playlist.tracks.length);
+        const neededToAdd = Math.max(1, targetSize - remainingCount);
+        const addCount = Math.min(10, Math.max(neededToAdd, Number(plan.add_count) || 3));
         const newTracks = ((curateData.tracks || []) as Track[])
           .filter((track) => !existingIds.has(track.id))
           .slice(0, addCount);

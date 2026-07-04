@@ -92,11 +92,15 @@ Return ONLY valid JSON:
 
 Rules:
 1. "remove_track_ids" MUST only contain IDs from the provided track list.
-2. Interpret semantics, not just keywords. "Remove all EDM" means remove electronic dance tracks, DJs, festival EDM, etc.
-3. If the playlist theme is Hindi, desi, Bollywood, or regional — remove western pop/english tracks that do not fit.
-4. If the user wants more songs, set "add_prompt" to a focused curation prompt matching the playlist theme. Set "add_count" between 1 and 10.
-5. If the command is only removal/filtering, set "add_prompt" to null and "add_count" to 0.
-6. Be aggressive about mismatched tracks when the user complains about accuracy.
+2. Every track in "Current tracks" has a "genres" array. Use this "genres" array to accurately filter tracks:
+   - "remove non-lofi" / "keep only lofi" / "remove non-study": remove any track whose genres do NOT contain "lo-fi", "lofi", "chillhop", "beats", "jazz hop", "study", or "ambient".
+   - "remove rap" / "remove vocals" / "instrumental only" / "no singing": remove tracks with genres containing "rap", "hip hop" (unless it's specifically "lo-fi hip hop" or "chillhop" without vocals), "vocal", "pop", "r&b", "soul", or if the track/artist name indicates a vocal feature (e.g. "feat.", "featuring", "ft.").
+   - "remove EDM": remove electronic dance, house, techno, club, trance, etc.
+   - "remove pop": remove pop, dance pop, synth-pop, mainstream pop, etc.
+3. Be extremely precise. If a track is a collaboration or has a featured artist with non-matching genres (e.g. rap or pop), remove it.
+4. If the playlist theme is Hindi, desi, Bollywood, or regional — remove western pop/english tracks that do not fit.
+5. If the user wants more songs, set "add_prompt" to a focused curation prompt matching the playlist theme. Set "add_count" between 1 and 10. If the user asks to add songs or fill/expand the playlist, set "add_count" to the number of tracks needed to bring the playlist to at least 5 to 10 tracks, or the number requested by the user.
+6. If the command is only removal/filtering, set "add_prompt" to null and "add_count" to 0.
 7. DO NOT remove tracks unless the user explicitly asks to remove, filter, clean, or reduce tracks. If the user only asks to add tracks, "remove_track_ids" MUST be empty.
 8. DO NOT add tracks unless the user explicitly asks to add, generate, or expand. If the user only asks to remove or filter, "add_prompt" MUST be null and "add_count" MUST be 0.`,
           },
@@ -164,6 +168,73 @@ export async function POST(req: Request) {
       normalizedTracks,
       playlistContext
     );
+
+    // Apply deterministic hybrid semantic/genre filter to catch anything the LLM misses
+    const commandLower = command.toLowerCase();
+    const isLofiRefine = /(remove non[ -]?lo[ -]?fi|keep only lo[ -]?fi|only lo[ -]?fi|remove non[ -]study|remove non[ -]chill)/.test(commandLower);
+    const isRapRemove = /(remove rap|no rap|instrumental only|only instrumental|remove vocals|no vocals|no singing)/.test(commandLower);
+    const isPopRemove = /(remove pop|no pop)/.test(commandLower);
+    const isEdmRemove = /(remove edm|no edm|remove electronic)/.test(commandLower);
+
+    const extraRemoveIds = new Set<string>();
+
+    for (const track of normalizedTracks) {
+      const genres = (track.artist_genres || []).map(g => g.toLowerCase());
+      const trackNameLower = track.name.toLowerCase();
+      const artistLower = track.artist.toLowerCase();
+
+      // 1. Keep only lofi
+      if (isLofiRefine) {
+        const hasLofiGenre = genres.some(g => 
+          g.includes("lo-fi") || 
+          g.includes("lofi") || 
+          g.includes("chillhop") || 
+          g.includes("beats") || 
+          g.includes("jazz hop") || 
+          g.includes("jazzhop") || 
+          g.includes("study") || 
+          g.includes("ambient")
+        );
+        const hasRapGenre = genres.some(g => g.includes("rap"));
+        if (!hasLofiGenre || hasRapGenre) {
+          extraRemoveIds.add(track.id);
+        }
+      }
+
+      // 2. Remove rap / vocals / features
+      if (isRapRemove) {
+        const hasRapGenre = genres.some(g => g.includes("rap") || g.includes("hip hop") || g.includes("hiphop") || g.includes("r&b") || g.includes("r-n-b") || g.includes("soul") || g.includes("vocal") || g.includes("singing") || g.includes("singer") || g.includes("pop"));
+        const hasFeature = trackNameLower.includes("feat.") || trackNameLower.includes("featuring") || trackNameLower.includes("ft.") || artistLower.includes("feat.") || artistLower.includes("featuring") || artistLower.includes("ft.");
+        const isTrueLofiBeats = genres.some(g => g.includes("lo-fi") || g.includes("lofi") || g.includes("chillhop") || g.includes("beats")) && !genres.some(g => g.includes("rap"));
+        
+        if ((hasRapGenre && !isTrueLofiBeats) || hasFeature) {
+          extraRemoveIds.add(track.id);
+        }
+      }
+
+      // 3. Remove Pop
+      if (isPopRemove) {
+        const hasPopGenre = genres.some(g => g.includes("pop") || g.includes("r&b") || g.includes("r-n-b") || g.includes("indie pop"));
+        if (hasPopGenre) {
+          extraRemoveIds.add(track.id);
+        }
+      }
+
+      // 4. Remove EDM
+      if (isEdmRemove) {
+        const hasEdmGenre = genres.some(g => g.includes("edm") || g.includes("house") || g.includes("techno") || g.includes("club") || g.includes("trance") || g.includes("dance") || g.includes("electronic"));
+        if (hasEdmGenre) {
+          extraRemoveIds.add(track.id);
+        }
+      }
+    }
+
+    if (extraRemoveIds.size > 0) {
+      const mergedRemoves = Array.from(new Set([...(plan.remove_track_ids || []), ...extraRemoveIds]));
+      // Catastrophic deletion guard (cap at 80% rounded down)
+      const maxDeletions = Math.max(0, Math.floor(normalizedTracks.length * 0.8));
+      plan.remove_track_ids = mergedRemoves.slice(0, maxDeletions);
+    }
 
     return NextResponse.json(plan);
   } catch (error: unknown) {

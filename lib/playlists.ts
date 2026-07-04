@@ -5,6 +5,8 @@ export interface Track {
   url: string;
   imageUrl?: string;
   previewUrl?: string;
+  artist_genres?: string[];
+  artist_ids?: string[];
 }
 
 export interface Playlist {
