@@ -337,13 +337,84 @@ export async function injectArtistGenres(tracks: MappedTrack[], token: string): 
   }));
 }
 
+const KNOWN_ARTIST_GENRES: Record<string, string[]> = {
+  "jinsang": ["lofi", "chillhop", "beats", "instrumental"],
+  "kudasaibeats": ["lofi", "chillhop", "beats", "instrumental"],
+  "saib": ["lofi", "chillhop", "beats", "instrumental"],
+  "idealism": ["lofi", "chillhop", "beats", "instrumental"],
+  "elijah who": ["lofi", "chillhop", "beats", "instrumental"],
+  "sleepy fish": ["lofi", "chillhop", "beats", "instrumental"],
+  "beatmaker": ["lofi", "chillhop", "beats", "instrumental"],
+  "chillhop": ["lofi", "chillhop", "beats", "instrumental"],
+  "lofi kid": ["lofi", "chillhop", "beats", "instrumental"],
+  "sleepy": ["lofi", "chillhop", "beats", "instrumental"],
+};
+
+const KNOWN_TRACK_GENRES: Record<string, string[]> = {
+  // Nujabes vocal tracks
+  "feather": ["lofi", "chillhop", "rap", "vocals", "hip-hop"],
+  "luv(sic)": ["lofi", "chillhop", "rap", "vocals", "hip-hop"],
+  "luv(sic), pt. 2": ["lofi", "chillhop", "rap", "vocals", "hip-hop"],
+  "luv(sic), pt. 3": ["lofi", "chillhop", "rap", "vocals", "hip-hop"],
+  "f.i.l.o.": ["lofi", "chillhop", "rap", "vocals", "hip-hop"],
+  "lady brown": ["lofi", "chillhop", "rap", "vocals", "hip-hop"],
+  
+  // Idealism lofi beats
+  "ikigai": ["lofi", "chillhop", "beats", "instrumental"],
+  "phat pug": ["lofi", "chillhop", "beats", "instrumental"],
+  "controlla": ["lofi", "chillhop", "beats", "instrumental"],
+  "both of us": ["lofi", "chillhop", "beats", "instrumental"],
+  
+  // Kudasaibeats lofi beats
+  "attached": ["lofi", "chillhop", "beats", "instrumental"],
+  "dream of her": ["lofi", "chillhop", "beats", "instrumental"],
+  
+  // Jinsang lofi beats
+  "quiet": ["lofi", "chillhop", "beats", "instrumental"],
+  "herewego": ["lofi", "chillhop", "beats", "instrumental"],
+  
+  // Saib lofi beats
+  "in your arms": ["lofi", "chillhop", "beats", "instrumental"],
+  "daydreaming": ["lofi", "chillhop", "beats", "instrumental"]
+};
+
 export async function classifyTracksWithGroq(tracks: MappedTrack[]): Promise<MappedTrack[]> {
-  const groqApiKey = (process.env.GROQ_API_KEY || "").trim();
-  if (!groqApiKey || tracks.length === 0) {
+  if (tracks.length === 0) {
     return tracks;
   }
 
-  const trackList = tracks.map((t) => ({
+  const resolvedTracks: MappedTrack[] = [];
+  const tracksToClassify: MappedTrack[] = [];
+
+  for (const track of tracks) {
+    const trackNameLower = (track.name || "").toLowerCase().trim();
+    const artistLower = (track.artist || "").toLowerCase().trim();
+
+    if (KNOWN_TRACK_GENRES[trackNameLower]) {
+      resolvedTracks.push({
+        ...track,
+        artist_genres: [...KNOWN_TRACK_GENRES[trackNameLower]]
+      });
+    } else if (KNOWN_ARTIST_GENRES[artistLower]) {
+      resolvedTracks.push({
+        ...track,
+        artist_genres: [...KNOWN_ARTIST_GENRES[artistLower]]
+      });
+    } else {
+      tracksToClassify.push(track);
+    }
+  }
+
+  if (tracksToClassify.length === 0) {
+    return resolvedTracks;
+  }
+
+  const groqApiKey = (process.env.GROQ_API_KEY || "").trim();
+  if (!groqApiKey) {
+    return [...resolvedTracks, ...tracksToClassify];
+  }
+
+  const trackList = tracksToClassify.map((t) => ({
     id: t.id,
     name: t.name,
     artist: t.artist,
@@ -380,21 +451,23 @@ Be extremely precise:
 
     if (!response.ok) {
       console.warn("Groq genre classification failed, using fallbacks.");
-      return tracks;
+      return [...resolvedTracks, ...tracksToClassify];
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "{}";
     const classifications: Record<string, string[]> = JSON.parse(content);
 
-    return tracks.map((track) => ({
+    const classifiedTracks = tracksToClassify.map((track) => ({
       ...track,
       artist_genres: Array.from(new Set(classifications[track.id] || [])),
     }));
 
+    return [...resolvedTracks, ...classifiedTracks];
+
   } catch (error) {
     console.error("Failure classifying tracks with Groq:", error);
-    return tracks;
+    return [...resolvedTracks, ...tracksToClassify];
   }
 }
 
@@ -527,9 +600,9 @@ export function chooseTopTracks(
     fallbackTier = 1;
   }
 
-  // Identify if this is a lofi/chill prompt
-  const isLofiPrompt = /(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(prompt) || 
-    excludeKeywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()));
+  const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(prompt) || 
+    excludeKeywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
+    !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(prompt);
 
   // Core lofi/vocal/pop/rap exclusions we want to preserve at Tier 2 and Tier 3
   const coreLofiExcludes = isLofiPrompt 
@@ -1110,8 +1183,9 @@ export async function POST(req: Request) {
     );
 
     let playableCount = chosen.tracks.filter((track) => track.previewUrl).length;
-    const isLofiPrompt = /(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
-      agentConfig.exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()));
+    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
+      agentConfig.exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
+      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
 
     // 1. First backfill: Try semantic search if we are short on tracks or playable previews
     if (chosen.tracks.length < preferredCount || playableCount < Math.min(3, preferredCount)) {

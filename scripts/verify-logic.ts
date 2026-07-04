@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import test from "node:test";
-import { filterTracks, chooseTopTracks, MappedTrack, buildSemanticSearchQueries } from "../app/api/curate/route.js";
+import { filterTracks, chooseTopTracks, MappedTrack, buildSemanticSearchQueries, classifyTracksWithGroq } from "../app/api/curate/route.js";
 import { sanitizePlan } from "../app/api/playlist-agent/route.js";
 
 // Dummy tracks
@@ -291,5 +291,167 @@ test("Curator Nuances & Edge Cases", async (t) => {
     
     assert.strictEqual(isAdditionQuery, false);
     assert.strictEqual(isRemovalQuery, true);
+  });
+
+  await t.test("should classify Kudasaibeats - Attached as lofi/instrumental using local dictionary", async () => {
+    const track: MappedTrack = {
+      id: "track_attached",
+      name: "Attached",
+      artist: "Kudasaibeats",
+      artist_ids: [],
+      url: "",
+      imageUrl: "",
+      previewUrl: "",
+      popularity: 50,
+      artist_genres: [],
+    };
+    const resolved = await classifyTracksWithGroq([track]);
+    assert.deepStrictEqual(resolved[0].artist_genres, ["lofi", "chillhop", "beats", "instrumental"]);
+  });
+
+  await t.test("should classify Jinsang - Quiet as lofi/instrumental using local dictionary", async () => {
+    const track: MappedTrack = {
+      id: "track_quiet",
+      name: "Quiet",
+      artist: "Jinsang",
+      artist_ids: [],
+      url: "",
+      imageUrl: "",
+      previewUrl: "",
+      popularity: 50,
+      artist_genres: [],
+    };
+    const resolved = await classifyTracksWithGroq([track]);
+    assert.deepStrictEqual(resolved[0].artist_genres, ["lofi", "chillhop", "beats", "instrumental"]);
+  });
+
+  await t.test("should classify Nujabes - Feather as rap/vocals using local dictionary", async () => {
+    const track: MappedTrack = {
+      id: "track_feather",
+      name: "Feather",
+      artist: "Nujabes",
+      artist_ids: [],
+      url: "",
+      imageUrl: "",
+      previewUrl: "",
+      popularity: 50,
+      artist_genres: [],
+    };
+    const resolved = await classifyTracksWithGroq([track]);
+    assert.deepStrictEqual(resolved[0].artist_genres, ["lofi", "chillhop", "rap", "vocals", "hip-hop"]);
+  });
+
+  await t.test("should classify Idealism - ikigai as lofi/instrumental using local dictionary", async () => {
+    const track: MappedTrack = {
+      id: "track_ikigai",
+      name: "ikigai",
+      artist: "Idealism",
+      artist_ids: [],
+      url: "",
+      imageUrl: "",
+      previewUrl: "",
+      popularity: 50,
+      artist_genres: [],
+    };
+    const resolved = await classifyTracksWithGroq([track]);
+    assert.deepStrictEqual(resolved[0].artist_genres, ["lofi", "chillhop", "beats", "instrumental"]);
+  });
+
+  await t.test("should identify isLofiPrompt as false when prompt contains 'rap' explicitly even if exclusions have rap", () => {
+    const cleanPrompt = "add 1 rap song";
+    const exclude_keywords = ["rap", "vocals", "pop", "edm"];
+    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
+      exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
+      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
+    
+    assert.strictEqual(isLofiPrompt, false);
+  });
+
+  await t.test("should identify isLofiPrompt as false when prompt contains 'edm' explicitly", () => {
+    const cleanPrompt = "play some edm dance music";
+    const exclude_keywords = ["rap", "vocals", "pop", "edm"];
+    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
+      exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
+      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
+    
+    assert.strictEqual(isLofiPrompt, false);
+  });
+
+  await t.test("should identify isLofiPrompt as false when prompt contains 'pop' explicitly", () => {
+    const cleanPrompt = "add pop music";
+    const exclude_keywords = ["rap", "vocals", "pop", "edm"];
+    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
+      exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
+      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
+    
+    assert.strictEqual(isLofiPrompt, false);
+  });
+
+  await t.test("should identify isLofiPrompt as true for standard lofi prompt without exclusions override", () => {
+    const cleanPrompt = "lofi study beats";
+    const exclude_keywords = ["rap", "vocals", "pop", "edm"];
+    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
+      exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
+      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
+    
+    assert.strictEqual(isLofiPrompt, true);
+  });
+
+  await t.test("should classify unknown tracks via fallback list mapping if Groq API key is absent", async () => {
+    const track: MappedTrack = {
+      id: "track_unknown",
+      name: "Unknown Track",
+      artist: "Some Random Artist",
+      artist_ids: [],
+      url: "",
+      imageUrl: "",
+      previewUrl: "",
+      popularity: 50,
+      artist_genres: [],
+    };
+    
+    const oldKey = process.env.GROQ_API_KEY;
+    delete process.env.GROQ_API_KEY;
+    try {
+      const resolved = await classifyTracksWithGroq([track]);
+      assert.deepStrictEqual(resolved[0].artist_genres, []);
+    } finally {
+      process.env.GROQ_API_KEY = oldKey;
+    }
+  });
+
+  await t.test("should retain pre-resolved track genres even when unclassified tracks exist", async () => {
+    const track1: MappedTrack = {
+      id: "track_quiet",
+      name: "Quiet",
+      artist: "Jinsang",
+      artist_ids: [],
+      url: "",
+      imageUrl: "",
+      previewUrl: "",
+      popularity: 50,
+      artist_genres: [],
+    };
+    const track2: MappedTrack = {
+      id: "track_unknown",
+      name: "Unknown Track",
+      artist: "Some Random Artist",
+      artist_ids: [],
+      url: "",
+      imageUrl: "",
+      previewUrl: "",
+      popularity: 50,
+      artist_genres: [],
+    };
+    
+    const oldKey = process.env.GROQ_API_KEY;
+    delete process.env.GROQ_API_KEY;
+    try {
+      const resolved = await classifyTracksWithGroq([track1, track2]);
+      assert.deepStrictEqual(resolved.find(t => t.id === "track_quiet")?.artist_genres, ["lofi", "chillhop", "beats", "instrumental"]);
+      assert.deepStrictEqual(resolved.find(t => t.id === "track_unknown")?.artist_genres, []);
+    } finally {
+      process.env.GROQ_API_KEY = oldKey;
+    }
   });
 });
