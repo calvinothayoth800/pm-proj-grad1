@@ -996,7 +996,7 @@ async function searchSpotifySemantic(
     const params = new URLSearchParams({
       q: query,
       type: "track",
-      limit: "25",
+      limit: "10",
       market: "US",
       offset: String(Math.floor(Math.random() * 10)),
     });
