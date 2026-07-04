@@ -35,6 +35,10 @@ export default function PlaylistDetails() {
   const [trackFeedback, setTrackFeedback] = useState<Record<string, "up" | "down">>({});
   const [agentCommand, setAgentCommand] = useState("");
   const [agentLoading, setAgentLoading] = useState(false);
+  const [showRemovalModal, setShowRemovalModal] = useState(false);
+  const [tracksToRemove, setTracksToRemove] = useState<Track[]>([]);
+  const [selectedRemoveIds, setSelectedRemoveIds] = useState<Set<string>>(new Set());
+  const [pendingPlan, setPendingPlan] = useState<any>(null);
 
   useEffect(() => {
     setTrackFeedback(getTrackFeedbackMap());
@@ -189,9 +193,18 @@ export default function PlaylistDetails() {
         throw new Error(plan.error || "Agent could not update playlist");
       }
 
-      const removeIds = new Set<string>(plan.remove_track_ids || []);
-      let updatedTracks = playlist.tracks.filter((track) => !removeIds.has(track.id));
+      const removeIdsArray = plan.remove_track_ids || [];
+      if (removeIdsArray.length > 0) {
+        setPendingPlan(plan);
+        const toRemove = playlist.tracks.filter((t) => removeIdsArray.includes(t.id));
+        setTracksToRemove(toRemove);
+        setSelectedRemoveIds(new Set(removeIdsArray));
+        setShowRemovalModal(true);
+        return;
+      }
 
+      // If no tracks to remove, proceed directly with adding tracks if any
+      let updatedTracks = [...playlist.tracks];
       if (plan.add_prompt) {
         const curateRes = await fetch("/api/curate", {
           method: "POST",
@@ -229,6 +242,56 @@ export default function PlaylistDetails() {
       );
     } finally {
       setAgentLoading(false);
+    }
+  };
+
+  const handleConfirmRemoval = async () => {
+    if (!playlist || !pendingPlan) return;
+
+    setAgentLoading(true);
+    setShowRemovalModal(false);
+    try {
+      let updatedTracks = playlist.tracks.filter((track) => !selectedRemoveIds.has(track.id));
+
+      if (pendingPlan.add_prompt) {
+        const curateRes = await fetch("/api/curate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: pendingPlan.add_prompt,
+            feedback: getFeedbackSummary(),
+            limit: pendingPlan.add_count,
+          }),
+        });
+
+        if (!curateRes.ok) {
+          const err = await curateRes.json();
+          throw new Error(err.error || "Failed to add tracks");
+        }
+
+        const curateData = await curateRes.json();
+        const existingIds = new Set(updatedTracks.map((track) => track.id));
+        const remainingCount = updatedTracks.length;
+        const targetSize = Math.max(5, playlist.tracks.length);
+        const neededToAdd = Math.max(1, targetSize - remainingCount);
+        const addCount = Math.min(10, Math.max(neededToAdd, Number(pendingPlan.add_count) || 3));
+        const newTracks = ((curateData.tracks || []) as Track[])
+          .filter((track) => !existingIds.has(track.id))
+          .slice(0, addCount);
+
+        updatedTracks = [...updatedTracks, ...newTracks];
+      }
+
+      updatePlaylistTracks(updatedTracks, pendingPlan.explanation || "Playlist updated.");
+      setAgentCommand("");
+    } catch (error: unknown) {
+      setToastMessage(
+        error instanceof Error ? error.message : "Agent update failed."
+      );
+    } finally {
+      setAgentLoading(false);
+      setPendingPlan(null);
+      setTracksToRemove([]);
     }
   };
 
@@ -485,6 +548,78 @@ export default function PlaylistDetails() {
         <div className="fixed bottom-28 left-1/2 -translate-x-1/2 bg-[#282828] text-white text-xs sm:text-sm font-semibold py-3 px-6 rounded-full shadow-2xl border border-zinc-700 flex items-center gap-2 z-50 animate-fade-in-up select-none">
           <span className="material-symbols-outlined text-primary text-lg">check_circle</span>
           {toastMessage}
+        </div>
+      )}
+
+      {/* Removal Confirmation Modal */}
+      {showRemovalModal && pendingPlan && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 select-none">
+          <div className="bg-[#1a1a1a] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
+            <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+              <span className="material-symbols-outlined text-amber-500">warning</span>
+              Confirm Track Removal
+            </h3>
+            <p className="text-xs text-on-surface-variant mb-4 leading-relaxed">
+              The curation agent suggested removing the following tracks based on your command. Uncheck any songs you want to keep:
+            </p>
+            
+            <div className="flex flex-col gap-2 max-h-60 overflow-y-auto mb-6 pr-1 custom-scrollbar">
+              {tracksToRemove.map((track) => {
+                const isChecked = selectedRemoveIds.has(track.id);
+                return (
+                  <label
+                    key={track.id}
+                    className="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800/80 hover:bg-zinc-800/50 cursor-pointer select-none transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {
+                        setSelectedRemoveIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(track.id)) {
+                            next.delete(track.id);
+                          } else {
+                            next.add(track.id);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="accent-primary w-4 h-4 cursor-pointer"
+                    />
+                    <img
+                      src={track.imageUrl || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=100&q=80"}
+                      alt={track.name}
+                      className="w-8 h-8 rounded object-cover pointer-events-none"
+                    />
+                    <div className="flex-1 flex flex-col min-w-0">
+                      <span className="text-xs font-semibold text-white truncate">{track.name}</span>
+                      <span className="text-[10px] text-zinc-400 truncate">{track.artist}</span>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowRemovalModal(false);
+                  setPendingPlan(null);
+                  setTracksToRemove([]);
+                }}
+                className="px-4 py-2 rounded-full border border-zinc-700 text-xs font-bold text-white hover:bg-zinc-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmRemoval}
+                className="px-5 py-2 rounded-full bg-primary hover:bg-[#1ed760] text-black text-xs font-bold transition-transform active:scale-95"
+              >
+                Confirm Removal
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

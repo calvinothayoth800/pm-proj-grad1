@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { classifyTracksWithGroq } from "../curate/route";
 
 interface PlaylistTrack {
   id: string;
@@ -161,6 +162,34 @@ export async function POST(req: Request) {
         { error: "At least one track is required" },
         { status: 400 }
       );
+    }
+
+    // Fetch missing genres dynamically via Groq classifier
+    const tracksNeedGenres = normalizedTracks.filter(t => !t.artist_genres || t.artist_genres.length === 0);
+    if (tracksNeedGenres.length > 0) {
+      try {
+        const mockMappedTracks = tracksNeedGenres.map(t => ({
+          id: t.id,
+          name: t.name,
+          artist: t.artist,
+          artist_ids: [],
+          url: "",
+          imageUrl: "",
+          previewUrl: "",
+          popularity: 0,
+          artist_genres: []
+        }));
+        const classified = await classifyTracksWithGroq(mockMappedTracks);
+        const classifiedMap = new Map(classified.map(t => [t.id, t.artist_genres]));
+        
+        for (const track of normalizedTracks) {
+          if (!track.artist_genres || track.artist_genres.length === 0) {
+            track.artist_genres = classifiedMap.get(track.id) || [];
+          }
+        }
+      } catch (err) {
+        console.error("Failed to dynamically classify missing playlist genres:", err);
+      }
     }
 
     const plan = await getPlaylistEditPlan(

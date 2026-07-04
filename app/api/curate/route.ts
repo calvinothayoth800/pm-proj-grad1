@@ -331,6 +331,67 @@ export async function injectArtistGenres(tracks: MappedTrack[], token: string): 
   }));
 }
 
+export async function classifyTracksWithGroq(tracks: MappedTrack[]): Promise<MappedTrack[]> {
+  const groqApiKey = (process.env.GROQ_API_KEY || "").trim();
+  if (!groqApiKey || tracks.length === 0) {
+    return tracks;
+  }
+
+  const trackList = tracks.map((t) => ({
+    id: t.id,
+    name: t.name,
+    artist: t.artist,
+  }));
+
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${groqApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert music catalog classifier. Given a list of tracks, classify each track's primary genres and vocal presence. 
+Return ONLY valid JSON where keys are track IDs and values are arrays of lowercase strings representing the genres and features (e.g. ["lofi", "beats", "chillhop", "rap", "vocals", "pop", "rnb", "electronic", "instrumental"]).
+Be extremely precise:
+- Check if the specific track has vocal singing or rap verses (e.g. "F.I.L.O." by Nujabes has rap vocals by Shing02, so it should contain "rap" and "vocals", not "instrumental").
+- If the track has a featured artist or guest vocalist, or is a vocal song, include "vocals" and "singing" or "rap".
+- If the track is a purely instrumental beat or track, include "instrumental".`,
+          },
+          {
+            role: "user",
+            content: JSON.stringify(trackList, null, 2),
+          },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.1,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn("Groq genre classification failed, using fallbacks.");
+      return tracks;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "{}";
+    const classifications: Record<string, string[]> = JSON.parse(content);
+
+    return tracks.map((track) => ({
+      ...track,
+      artist_genres: Array.from(new Set(classifications[track.id] || [])),
+    }));
+
+  } catch (error) {
+    console.error("Failure classifying tracks with Groq:", error);
+    return tracks;
+  }
+}
+
 function dedupeTracks(tracks: MappedTrack[]) {
   const seenIds = new Set<string>();
   const uniqueTracks: MappedTrack[] = [];
@@ -973,7 +1034,7 @@ export async function POST(req: Request) {
       tracks = await searchSpotifySemantic(agentConfig, token, cleanPrompt);
     }
 
-    tracks = await injectArtistGenres(tracks, token);
+    tracks = await classifyTracksWithGroq(tracks);
 
     const uniqueTracks = dedupeTracks(tracks).filter(
       (track) => !feedbackContext?.dislikedTrackIds?.includes(track.id)
@@ -993,7 +1054,7 @@ export async function POST(req: Request) {
         token,
         cleanPrompt
       );
-      extraTracks = await injectArtistGenres(extraTracks, token);
+      extraTracks = await classifyTracksWithGroq(extraTracks);
       const merged = dedupeTracks([...enrichedTracks, ...extraTracks]);
       enrichedTracks = await enrichTracksWithSpotifyPreviews(merged);
       chosen = chooseTopTracks(
