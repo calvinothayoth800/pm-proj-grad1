@@ -703,7 +703,7 @@ function getRegionalArtistHints(prompt: string) {
   return Array.from(new Set(hints));
 }
 
-function buildSemanticSearchQueries(agentConfig: AgentOutput, prompt = "") {
+export function buildSemanticSearchQueries(agentConfig: AgentOutput, prompt = "") {
   const priorityQueries: string[] = [];
   
   if (agentConfig.target_track) {

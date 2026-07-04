@@ -100,7 +100,7 @@ Rules:
    - "remove pop": remove pop, dance pop, synth-pop, mainstream pop, etc.
 3. Be extremely precise. If a track is a collaboration or has a featured artist with non-matching genres (e.g. rap or pop), remove it.
 4. If the playlist theme is Hindi, desi, Bollywood, or regional — remove western pop/english tracks that do not fit.
-5. If the user wants more songs, set "add_prompt" to a focused curation prompt matching the playlist theme. Set "add_count" between 1 and 10. If the user asks to add songs or fill/expand the playlist, set "add_count" to the number of tracks needed to bring the playlist to at least 5 to 10 tracks, or the number requested by the user.
+5. If the user wants more songs, set "add_prompt" to a focused curation prompt matching the user's specific request (e.g. if they ask to add a rap song, the prompt MUST contain "rap song" or "hip-hop"; if they ask for lofi, it must contain "lofi"). Only default to matching the playlist theme if no specific genre, style, artist, or song is mentioned in their addition request. Set "add_count" between 1 and 10. If the user asks to add songs or fill/expand the playlist, set "add_count" to the number of tracks needed to bring the playlist to at least 5 to 10 tracks, or the number requested by the user.
 6. If the command is only removal/filtering, set "add_prompt" to null and "add_count" to 0.
 7. DO NOT remove tracks unless the user explicitly asks to remove, filter, clean, or reduce tracks. If the user only asks to add tracks, "remove_track_ids" MUST be empty.
 8. DO NOT add tracks unless the user explicitly asks to add, generate, or expand. If the user only asks to remove or filter, "add_prompt" MUST be null and "add_count" MUST be 0.`,
@@ -289,6 +289,7 @@ export async function POST(req: Request) {
 
     if (isAdditionQuery && !isRemovalQuery) {
       plan.remove_track_ids = [];
+      plan.explanation = `Adding ${plan.add_count || 1} song(s) matching "${plan.add_prompt || command}".`;
     }
 
     return NextResponse.json(plan);

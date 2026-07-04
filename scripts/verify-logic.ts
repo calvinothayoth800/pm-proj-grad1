@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import test from "node:test";
-import { filterTracks, chooseTopTracks, MappedTrack } from "../app/api/curate/route.js";
+import { filterTracks, chooseTopTracks, MappedTrack, buildSemanticSearchQueries } from "../app/api/curate/route.js";
 import { sanitizePlan } from "../app/api/playlist-agent/route.js";
 
 // Dummy tracks
@@ -158,5 +158,138 @@ test("Playlist Helper Upgrades", async (t) => {
 
     const sanitized = sanitizePlan(rawPlan, singleTrackSet);
     assert.strictEqual(sanitized.remove_track_ids.length, 0);
+  });
+});
+
+test("Curator Nuances & Edge Cases", async (t) => {
+  await t.test("should prioritize target_track and target_artist in search queries", () => {
+    const config = {
+      seed_genres: "lo-fi",
+      seed_artists: ["Jinsang"],
+      target_energy: 0.5,
+      target_valence: 0.5,
+      target_danceability: 0.5,
+      exclude_keywords: [],
+      track_count: 5,
+      target_artist: "Nujabes",
+      target_track: "Feather",
+    };
+    const queries = buildSemanticSearchQueries(config, "Nujabes Feather");
+    assert.strictEqual(queries[0], 'track:"Feather" artist:"Nujabes"');
+  });
+
+  await t.test("should prioritize only target_artist if target_track is absent", () => {
+    const config = {
+      seed_genres: "lo-fi",
+      seed_artists: ["Jinsang"],
+      target_energy: 0.5,
+      target_valence: 0.5,
+      target_danceability: 0.5,
+      exclude_keywords: [],
+      track_count: 5,
+      target_artist: "J Dilla",
+      target_track: null,
+    };
+    const queries = buildSemanticSearchQueries(config, "J Dilla");
+    assert.strictEqual(queries[0], 'artist:"J Dilla"');
+  });
+
+  await t.test("should prioritize only target_track if target_artist is absent", () => {
+    const config = {
+      seed_genres: "lo-fi",
+      seed_artists: ["Jinsang"],
+      target_energy: 0.5,
+      target_valence: 0.5,
+      target_danceability: 0.5,
+      exclude_keywords: [],
+      track_count: 5,
+      target_artist: null,
+      target_track: "ikigai",
+    };
+    const queries = buildSemanticSearchQueries(config, "ikigai");
+    assert.strictEqual(queries[0], 'track:"ikigai"');
+  });
+
+  await t.test("should dynamically bypass exclusion rules when explicitly requested (rap)", () => {
+    const originalExcludes = ["rap", "vocals", "pop"];
+    const prompt = "add 1 rap song";
+    const promptLower = prompt.toLowerCase();
+    
+    let excludes = [...originalExcludes];
+    if (promptLower.includes("rap") || promptLower.includes("hiphop") || promptLower.includes("hip-hop")) {
+      excludes = excludes.filter(
+        k => !["rap", "hip hop", "hiphop"].includes(k.toLowerCase())
+      );
+    }
+    assert.deepStrictEqual(excludes, ["vocals", "pop"]);
+  });
+
+  await t.test("should dynamically bypass exclusion rules when explicitly requested (vocals)", () => {
+    const originalExcludes = ["rap", "vocals", "pop"];
+    const prompt = "lofi tracks with vocals";
+    const promptLower = prompt.toLowerCase();
+    
+    let excludes = [...originalExcludes];
+    if (promptLower.includes("vocal") || promptLower.includes("sing") || promptLower.includes("song")) {
+      excludes = excludes.filter(
+        k => !["vocal", "vocals", "singing", "singer"].includes(k.toLowerCase())
+      );
+    }
+    assert.deepStrictEqual(excludes, ["rap", "pop"]);
+  });
+
+  await t.test("should dynamically bypass exclusion rules when explicitly requested (pop)", () => {
+    const originalExcludes = ["rap", "vocals", "pop"];
+    const prompt = "add a pop remix";
+    const promptLower = prompt.toLowerCase();
+    
+    let excludes = [...originalExcludes];
+    if (promptLower.includes("pop")) {
+      excludes = excludes.filter(
+        k => !["pop"].includes(k.toLowerCase())
+      );
+    }
+    assert.deepStrictEqual(excludes, ["rap", "vocals"]);
+  });
+
+  await t.test("should dynamically bypass exclusion rules when explicitly requested (edm)", () => {
+    const originalExcludes = ["rap", "vocals", "edm", "electronic"];
+    const prompt = "play electronic house beats";
+    const promptLower = prompt.toLowerCase();
+    
+    let excludes = [...originalExcludes];
+    if (promptLower.includes("edm") || promptLower.includes("electronic") || promptLower.includes("house") || promptLower.includes("techno")) {
+      excludes = excludes.filter(
+        k => !["edm", "electronic", "house", "techno", "dance"].includes(k.toLowerCase())
+      );
+    }
+    assert.deepStrictEqual(excludes, ["rap", "vocals"]);
+  });
+
+  await t.test("should match additive command with typo like 'aadd 1 rap song' in addition guard check", () => {
+    const command = "aadd 1 rap song";
+    const isRemovalQuery = /(remove|delete|clean|no|only|strip|keep|refine|filter|purge)/i.test(command);
+    const isAdditionQuery = /(add|fill|expand|introduce|more|insert)/i.test(command);
+    
+    assert.strictEqual(isAdditionQuery, true);
+    assert.strictEqual(isRemovalQuery, false);
+  });
+
+  await t.test("should identify hybrid modification query as removal query", () => {
+    const command = "remove pop and add lofi";
+    const isRemovalQuery = /(remove|delete|clean|no|only|strip|keep|refine|filter|purge)/i.test(command);
+    const isAdditionQuery = /(add|fill|expand|introduce|more|insert)/i.test(command);
+    
+    assert.strictEqual(isAdditionQuery, true);
+    assert.strictEqual(isRemovalQuery, true);
+  });
+
+  await t.test("should identify pure removal query as removal only", () => {
+    const command = "remove non-lofi tracks";
+    const isRemovalQuery = /(remove|delete|clean|no|only|strip|keep|refine|filter|purge)/i.test(command);
+    const isAdditionQuery = /(add|fill|expand|introduce|more|insert)/i.test(command);
+    
+    assert.strictEqual(isAdditionQuery, false);
+    assert.strictEqual(isRemovalQuery, true);
   });
 });
