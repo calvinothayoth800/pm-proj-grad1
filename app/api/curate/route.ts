@@ -175,7 +175,7 @@ interface SpotifyTrack {
   popularity?: number;
 }
 
-interface MappedTrack {
+export interface MappedTrack {
   id: string;
   name: string;
   artist: string;
