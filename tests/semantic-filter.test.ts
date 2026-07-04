@@ -6,7 +6,7 @@ describe("Post-Retrieval Semantic Filter Upgrade", () => {
     id: "track_1",
     name: "Nightcall",
     artist: "Kavinsky",
-    artist_id: "artist_1",
+    artist_ids: ["artist_1"],
     url: "https://spotify.com/track/1",
     imageUrl: "https://spotify.com/image/1",
     previewUrl: "https://p.scdn.co/mp3-preview/1",

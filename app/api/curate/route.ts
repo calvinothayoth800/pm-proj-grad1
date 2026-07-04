@@ -179,7 +179,7 @@ export interface MappedTrack {
   id: string;
   name: string;
   artist: string;
-  artist_id: string;
+  artist_ids: string[];
   url: string;
   imageUrl: string;
   previewUrl: string;
@@ -268,7 +268,7 @@ function mapTrack(track: SpotifyTrack): MappedTrack | null {
     id: track.id,
     name: track.name || "Unknown Track",
     artist: track.artists?.[0]?.name || "Unknown Artist",
-    artist_id: track.artists?.[0]?.id || "",
+    artist_ids: track.artists?.map((a) => a.id).filter((id): id is string => Boolean(id)) || [],
     url: track.external_urls?.spotify || "",
     imageUrl: track.album?.images?.[0]?.url || "",
     previewUrl: track.preview_url || "",
@@ -321,11 +321,13 @@ export async function fetchArtistGenres(artistIds: string[], token: string): Pro
 }
 
 export async function injectArtistGenres(tracks: MappedTrack[], token: string): Promise<MappedTrack[]> {
-  const artistIds = tracks.map((t) => t.artist_id);
-  const genresMap = await fetchArtistGenres(artistIds, token);
+  const allArtistIds = tracks.flatMap((t) => t.artist_ids);
+  const genresMap = await fetchArtistGenres(allArtistIds, token);
   return tracks.map((track) => ({
     ...track,
-    artist_genres: genresMap[track.artist_id] || [],
+    artist_genres: Array.from(
+      new Set(track.artist_ids.flatMap((id) => genresMap[id] || []))
+    ),
   }));
 }
 

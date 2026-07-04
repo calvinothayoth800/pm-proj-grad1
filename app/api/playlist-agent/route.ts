@@ -4,6 +4,7 @@ interface PlaylistTrack {
   id: string;
   name: string;
   artist: string;
+  artist_genres?: string[];
 }
 
 interface AgentEditPlan {
@@ -63,6 +64,7 @@ async function getPlaylistEditPlan(
     id: track.id,
     name: track.name,
     artist: track.artist,
+    genres: track.artist_genres || [],
   }));
 
   const response = await fetch(
@@ -137,16 +139,17 @@ export async function POST(req: Request) {
 
     const normalizedTracks: PlaylistTrack[] = tracks
       .filter(
-        (track: PlaylistTrack) =>
+        (track: any) =>
           track &&
           typeof track.id === "string" &&
           typeof track.name === "string" &&
           typeof track.artist === "string"
       )
-      .map((track: PlaylistTrack) => ({
+      .map((track: any) => ({
         id: track.id,
         name: track.name,
         artist: track.artist,
+        artist_genres: Array.isArray(track.artist_genres) ? track.artist_genres : [],
       }));
 
     if (normalizedTracks.length === 0) {
