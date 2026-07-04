@@ -206,64 +206,82 @@ export async function POST(req: Request) {
     const isEdmRemove = /(remove edm|no edm|remove electronic)/.test(commandLower);
 
     const extraRemoveIds = new Set<string>();
+    const protectedIds = new Set<string>();
 
     for (const track of normalizedTracks) {
       const genres = (track.artist_genres || []).map(g => g.toLowerCase());
       const trackNameLower = track.name.toLowerCase();
       const artistLower = track.artist.toLowerCase();
 
+      const hasLofiGenre = genres.some(g => 
+        g.includes("lo-fi") || 
+        g.includes("lofi") || 
+        g.includes("chillhop") || 
+        g.includes("beats") || 
+        g.includes("jazz hop") || 
+        g.includes("jazzhop") || 
+        g.includes("study") || 
+        g.includes("ambient")
+      );
+      const hasRapGenre = genres.some(g => g.includes("rap"));
+      const hasVocalGenre = genres.some(g => g.includes("vocal") || g.includes("singing") || g.includes("singer"));
+      const hasPopGenre = genres.some(g => g.includes("pop") || g.includes("r&b") || g.includes("r-n-b") || g.includes("indie pop"));
+      const hasEdmGenre = genres.some(g => g.includes("edm") || g.includes("house") || g.includes("techno") || g.includes("club") || g.includes("trance") || g.includes("dance") || g.includes("electronic"));
+      const hasFeature = trackNameLower.includes("feat.") || trackNameLower.includes("featuring") || trackNameLower.includes("ft.") || artistLower.includes("feat.") || artistLower.includes("featuring") || artistLower.includes("ft.");
+
       // 1. Keep only lofi
       if (isLofiRefine) {
-        const hasLofiGenre = genres.some(g => 
-          g.includes("lo-fi") || 
-          g.includes("lofi") || 
-          g.includes("chillhop") || 
-          g.includes("beats") || 
-          g.includes("jazz hop") || 
-          g.includes("jazzhop") || 
-          g.includes("study") || 
-          g.includes("ambient")
-        );
-        const hasRapGenre = genres.some(g => g.includes("rap"));
         if (!hasLofiGenre || hasRapGenre) {
           extraRemoveIds.add(track.id);
+        } else {
+          protectedIds.add(track.id);
         }
       }
 
       // 2. Remove rap / vocals / features
       if (isRapRemove) {
-        const hasRapGenre = genres.some(g => g.includes("rap") || g.includes("hip hop") || g.includes("hiphop") || g.includes("r&b") || g.includes("r-n-b") || g.includes("soul") || g.includes("vocal") || g.includes("singing") || g.includes("singer") || g.includes("pop"));
-        const hasFeature = trackNameLower.includes("feat.") || trackNameLower.includes("featuring") || trackNameLower.includes("ft.") || artistLower.includes("feat.") || artistLower.includes("featuring") || artistLower.includes("ft.");
-        const isTrueLofiBeats = genres.some(g => g.includes("lo-fi") || g.includes("lofi") || g.includes("chillhop") || g.includes("beats")) && !genres.some(g => g.includes("rap"));
-        
-        if ((hasRapGenre && !isTrueLofiBeats) || hasFeature) {
+        const isTrueLofiBeats = (hasLofiGenre || genres.some(g => g.includes("chill"))) && !hasRapGenre;
+        if ((hasRapGenre && !isTrueLofiBeats) || hasFeature || hasVocalGenre) {
           extraRemoveIds.add(track.id);
+        } else {
+          protectedIds.add(track.id);
         }
       }
 
       // 3. Remove Pop
       if (isPopRemove) {
-        const hasPopGenre = genres.some(g => g.includes("pop") || g.includes("r&b") || g.includes("r-n-b") || g.includes("indie pop"));
         if (hasPopGenre) {
           extraRemoveIds.add(track.id);
+        } else {
+          protectedIds.add(track.id);
         }
       }
 
       // 4. Remove EDM
       if (isEdmRemove) {
-        const hasEdmGenre = genres.some(g => g.includes("edm") || g.includes("house") || g.includes("techno") || g.includes("club") || g.includes("trance") || g.includes("dance") || g.includes("electronic"));
         if (hasEdmGenre) {
           extraRemoveIds.add(track.id);
+        } else {
+          protectedIds.add(track.id);
         }
       }
     }
 
-    if (extraRemoveIds.size > 0) {
-      const mergedRemoves = Array.from(new Set([...(plan.remove_track_ids || []), ...extraRemoveIds]));
-      // Catastrophic deletion guard (cap at 80% rounded down)
-      const maxDeletions = Math.max(0, Math.floor(normalizedTracks.length * 0.8));
-      plan.remove_track_ids = mergedRemoves.slice(0, maxDeletions);
+    const baseRemoves = new Set(plan.remove_track_ids || []);
+    
+    // Add extra removals
+    for (const id of extraRemoveIds) {
+      baseRemoves.add(id);
     }
+    
+    // Remove protected tracks from deletion list
+    for (const id of protectedIds) {
+      baseRemoves.delete(id);
+    }
+
+    const finalRemovesArray = Array.from(baseRemoves);
+    const maxDeletions = Math.max(0, Math.floor(normalizedTracks.length * 0.8));
+    plan.remove_track_ids = finalRemovesArray.slice(0, maxDeletions);
 
     return NextResponse.json(plan);
   } catch (error: unknown) {

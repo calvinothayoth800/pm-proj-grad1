@@ -234,7 +234,14 @@ export default function PlaylistDetails() {
         updatedTracks = [...updatedTracks, ...newTracks];
       }
 
-      updatePlaylistTracks(updatedTracks, plan.explanation || "Playlist updated.");
+      const trackIdsBefore = playlist.tracks.map((t) => t.id).join(",");
+      const trackIdsAfter = updatedTracks.map((t) => t.id).join(",");
+      const hasChanged = trackIdsBefore !== trackIdsAfter;
+      
+      updatePlaylistTracks(
+        updatedTracks,
+        hasChanged ? (plan.explanation || "Playlist updated.") : "All tracks in this playlist already match the vibe!"
+      );
       setAgentCommand("");
     } catch (error: unknown) {
       setToastMessage(
@@ -282,7 +289,14 @@ export default function PlaylistDetails() {
         updatedTracks = [...updatedTracks, ...newTracks];
       }
 
-      updatePlaylistTracks(updatedTracks, pendingPlan.explanation || "Playlist updated.");
+      const trackIdsBefore = playlist.tracks.map((t) => t.id).join(",");
+      const trackIdsAfter = updatedTracks.map((t) => t.id).join(",");
+      const hasChanged = trackIdsBefore !== trackIdsAfter;
+
+      updatePlaylistTracks(
+        updatedTracks,
+        hasChanged ? (pendingPlan.explanation || "Playlist updated.") : "All tracks in this playlist already match the vibe!"
+      );
       setAgentCommand("");
     } catch (error: unknown) {
       setToastMessage(
