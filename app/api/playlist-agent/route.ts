@@ -283,6 +283,14 @@ export async function POST(req: Request) {
     const maxDeletions = Math.max(0, Math.floor(normalizedTracks.length * 0.8));
     plan.remove_track_ids = finalRemovesArray.slice(0, maxDeletions);
 
+    // Enforce addition code guard: if purely additive command, empty all removals!
+    const isRemovalQuery = /(remove|delete|clean|no|only|strip|keep|refine|filter|purge)/i.test(command);
+    const isAdditionQuery = /(add|fill|expand|introduce|more|insert)/i.test(command);
+
+    if (isAdditionQuery && !isRemovalQuery) {
+      plan.remove_track_ids = [];
+    }
+
     return NextResponse.json(plan);
   } catch (error: unknown) {
     console.error("Playlist agent error:", error);

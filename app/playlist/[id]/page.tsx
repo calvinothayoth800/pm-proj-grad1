@@ -213,6 +213,7 @@ export default function PlaylistDetails() {
             prompt: plan.add_prompt,
             feedback: getFeedbackSummary(),
             limit: plan.add_count,
+            existingTrackIds: updatedTracks.map((t) => t.id),
           }),
         });
 
@@ -268,6 +269,7 @@ export default function PlaylistDetails() {
             prompt: pendingPlan.add_prompt,
             feedback: getFeedbackSummary(),
             limit: pendingPlan.add_count,
+            existingTrackIds: updatedTracks.map((t) => t.id),
           }),
         });
 

@@ -54,6 +54,8 @@ const DEFAULT_AGENT_OUTPUT: AgentOutput = {
   target_danceability: 0.5,
   exclude_keywords: [],
   track_count: 5,
+  target_artist: null,
+  target_track: null,
 };
 
 const FILLER_ARTIST_KEYWORDS = [
@@ -157,6 +159,8 @@ interface AgentOutput {
   target_danceability: number;
   exclude_keywords: string[];
   track_count: number;
+  target_artist?: string | null;
+  target_track?: string | null;
 }
 
 interface CurationFeedback {
@@ -258,6 +262,8 @@ function sanitizeAgentOutput(value: Partial<AgentOutput>): AgentOutput {
     track_count: Number.isFinite(parsedTrackCount)
       ? Math.min(10, Math.max(1, Math.round(parsedTrackCount)))
       : 5,
+    target_artist: typeof value.target_artist === "string" ? value.target_artist : null,
+    target_track: typeof value.target_track === "string" ? value.target_track : null,
   };
 }
 
@@ -698,6 +704,18 @@ function getRegionalArtistHints(prompt: string) {
 }
 
 function buildSemanticSearchQueries(agentConfig: AgentOutput, prompt = "") {
+  const priorityQueries: string[] = [];
+  
+  if (agentConfig.target_track) {
+    if (agentConfig.target_artist) {
+      priorityQueries.push(`track:"${agentConfig.target_track}" artist:"${agentConfig.target_artist}"`);
+    } else {
+      priorityQueries.push(`track:"${agentConfig.target_track}"`);
+    }
+  } else if (agentConfig.target_artist) {
+    priorityQueries.push(`artist:"${agentConfig.target_artist}"`);
+  }
+
   const seedGenres = agentConfig.seed_genres
     .split(",")
     .map((genre) => genre.trim())
@@ -722,7 +740,7 @@ function buildSemanticSearchQueries(agentConfig: AgentOutput, prompt = "") {
   const artistQueries = artistPool.slice(0, 8).map((artist) => `artist:"${artist}"`);
   const genreQueries = seedGenres.map((genre) => `genre:"${genre}"`);
 
-  return shuffleItems([...artistQueries, ...genreQueries]);
+  return [...priorityQueries, ...shuffleItems([...artistQueries, ...genreQueries])];
 }
 
 async function getSpotifyToken(): Promise<string> {
@@ -808,7 +826,9 @@ Schema:
   "target_valence": 0.0,
   "target_danceability": 0.0,
   "exclude_keywords": ["string"],
-  "track_count": 5
+  "track_count": 5,
+  "target_artist": "string or null",
+  "target_track": "string or null"
 }
 
 Rules:
@@ -825,7 +845,8 @@ Rules:
 11. NEVER use the user's prompt words as search keywords. You are generating API parameters only.
 12. For Hindi, desi, Bollywood, or Indian requests: seed_artists must be Indian artists only (Arijit Singh, Sunidhi Chauhan, Shreya Ghoshal, Pritam, Badshah, A.R. Rahman). exclude_keywords must include western pop artists like Taylor Swift, Dua Lipa, The Weeknd, Ed Sheeran.
 13. "track_count" is the number of songs/tracks requested by the user, between 1 and 10. Default to 5 if not specified in the prompt.
-14. For lofi, study, coding, or chill beats prompts: seed_genres MUST include lo-fi or study. seed_artists must be lofi/chillhop artists only (Nujabes, J Dilla, idealism, Kudasai, Saib, Jinsang, Elijah Who). exclude_keywords must include mainstream hip-hop/pop artists (Kendrick Lamar, J. Cole, Drake, Taylor Swift, etc.) to keep it instrumental/chill.`,
+14. For lofi, study, coding, or chill beats prompts: seed_genres MUST include lo-fi or study. seed_artists must be lofi/chillhop artists only (Nujabes, J Dilla, idealism, Kudasai, Saib, Jinsang, Elijah Who). exclude_keywords must include mainstream hip-hop/pop artists (Kendrick Lamar, J. Cole, Drake, Taylor Swift, etc.) to keep it instrumental/chill.
+15. If the user explicitly requests a specific artist, add the artist's name to "target_artist". If they request a specific song title, add it to "target_track".`,
             },
             {
               role: "user",
@@ -989,7 +1010,7 @@ async function enrichTracksWithSpotifyPreviews(
 
 export async function POST(req: Request) {
   try {
-    const { prompt, feedback, limit } = await req.json();
+    const { prompt, feedback, limit, existingTrackIds } = await req.json();
     if (typeof prompt !== "string" || !prompt.trim()) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
@@ -1016,6 +1037,28 @@ export async function POST(req: Request) {
       ...getRegionalExcludes(cleanPrompt),
       ...getLofiExcludes(cleanPrompt),
     ]);
+
+    const promptLower = cleanPrompt.toLowerCase();
+    if (promptLower.includes("rap") || promptLower.includes("hiphop") || promptLower.includes("hip-hop")) {
+      agentConfig.exclude_keywords = agentConfig.exclude_keywords.filter(
+        k => !["rap", "hip hop", "hiphop"].includes(k.toLowerCase())
+      );
+    }
+    if (promptLower.includes("vocal") || promptLower.includes("sing") || promptLower.includes("song")) {
+      agentConfig.exclude_keywords = agentConfig.exclude_keywords.filter(
+        k => !["vocal", "vocals", "singing", "singer"].includes(k.toLowerCase())
+      );
+    }
+    if (promptLower.includes("pop")) {
+      agentConfig.exclude_keywords = agentConfig.exclude_keywords.filter(
+        k => !["pop"].includes(k.toLowerCase())
+      );
+    }
+    if (promptLower.includes("edm") || promptLower.includes("electronic") || promptLower.includes("house") || promptLower.includes("techno")) {
+      agentConfig.exclude_keywords = agentConfig.exclude_keywords.filter(
+        k => !["edm", "electronic", "house", "techno", "dance"].includes(k.toLowerCase())
+      );
+    }
     const token = await getSpotifyToken();
 
     const preferredCount =
@@ -1050,9 +1093,14 @@ export async function POST(req: Request) {
 
     tracks = await classifyTracksWithGroq(tracks);
 
-    const uniqueTracks = dedupeTracks(tracks).filter(
-      (track) => !feedbackContext?.dislikedTrackIds?.includes(track.id)
+    const parsedExistingIds = Array.isArray(existingTrackIds)
+      ? new Set<string>(existingTrackIds.map(String))
+      : new Set<string>();
+
+    let uniqueTracks = dedupeTracks(tracks).filter(
+      (track) => !feedbackContext?.dislikedTrackIds?.includes(track.id) && !parsedExistingIds.has(track.id)
     );
+    uniqueTracks = shuffleItems(uniqueTracks);
     let enrichedTracks = await enrichTracksWithSpotifyPreviews(uniqueTracks);
     let chosen = chooseTopTracks(
       enrichedTracks,
