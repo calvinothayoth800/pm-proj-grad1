@@ -521,17 +521,31 @@ export function chooseTopTracks(
     fallbackTier = 1;
   }
 
+  // Identify if this is a lofi/chill prompt
+  const isLofiPrompt = /(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(prompt) || 
+    excludeKeywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()));
+
+  // Core lofi/vocal/pop/rap exclusions we want to preserve at Tier 2 and Tier 3
+  const coreLofiExcludes = isLofiPrompt 
+    ? excludeKeywords.filter(k => ["rap", "vocals", "vocal", "singing", "singer", "pop", "edm", "rnb", "r-n-b", "house", "dance"].includes(k.toLowerCase()))
+    : [];
+
   if (filteredTracks.length === 0 && tracks.length > 0) {
     const primaryExclude = excludeKeywords.length > 0 ? [excludeKeywords[0]] : [];
+    const activeExcludes = Array.from(new Set([...primaryExclude, ...coreLofiExcludes]));
     filteredTracks = filterTracks(tracks, excludeKeywords, prompt, {
       checkPopularity: false,
-      excludeKeywordsOverride: primaryExclude,
+      excludeKeywordsOverride: activeExcludes,
     });
     fallbackTier = 2;
   }
 
   if (filteredTracks.length === 0 && tracks.length > 0) {
-    filteredTracks = [...tracks].sort((a, b) => b.popularity - a.popularity);
+    const matching = filterTracks(tracks, excludeKeywords, prompt, {
+      checkPopularity: false,
+      excludeKeywordsOverride: coreLofiExcludes,
+    });
+    filteredTracks = [...matching].sort((a, b) => b.popularity - a.popularity);
     fallbackTier = 3;
   }
 
@@ -848,7 +862,7 @@ async function fetchSpotifyRecommendations(
   token: string
 ) {
   const params = new URLSearchParams({
-    limit: "15",
+    limit: "80",
     market: "US",
     seed_genres: agentConfig.seed_genres,
     target_energy: String(agentConfig.target_energy),
@@ -888,7 +902,7 @@ async function searchSpotifySemantic(
     const params = new URLSearchParams({
       q: query,
       type: "track",
-      limit: "10",
+      limit: "25",
       market: "US",
       offset: String(Math.floor(Math.random() * 10)),
     });
@@ -915,7 +929,7 @@ async function searchSpotifySemantic(
       .map(mapTrack)
       .filter((track): track is MappedTrack => Boolean(track))
       .sort((a, b) => b.popularity - a.popularity)
-      .slice(0, 4);
+      .slice(0, 12);
   });
 
   const results = await Promise.all(requests);
@@ -1047,12 +1061,19 @@ export async function POST(req: Request) {
       preferredCount
     );
 
-    const playableCount = chosen.tracks.filter((track) => track.previewUrl).length;
-    if (playableCount < 3 && uniqueTracks.length > 0) {
+    let playableCount = chosen.tracks.filter((track) => track.previewUrl).length;
+    const isLofiPrompt = /(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
+      agentConfig.exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()));
+
+    // 1. First backfill: Try semantic search if we are short on tracks or playable previews
+    if ((chosen.tracks.length < preferredCount || playableCount < Math.min(3, preferredCount)) && uniqueTracks.length > 0) {
       let extraTracks = await searchSpotifySemantic(
-        agentConfig,
+        {
+          ...agentConfig,
+          seed_genres: isLofiPrompt ? "lo-fi,chillhop,ambient" : agentConfig.seed_genres,
+        },
         token,
-        cleanPrompt
+        cleanPrompt || (isLofiPrompt ? "lofi study beats" : "")
       );
       extraTracks = await classifyTracksWithGroq(extraTracks);
       const merged = dedupeTracks([...enrichedTracks, ...extraTracks]);
@@ -1063,6 +1084,55 @@ export async function POST(req: Request) {
         cleanPrompt,
         preferredCount
       );
+      playableCount = chosen.tracks.filter((track) => track.previewUrl).length;
+    }
+
+    // 2. Second fail-safe backfill: Use static verified lofi tracks if it's a lofi prompt and we're still short
+    if (isLofiPrompt && chosen.tracks.length < preferredCount) {
+      const STATIC_LOFI_BACKFILLS = [
+        { name: "Quiet", artist: "Jinsang" },
+        { name: "Attached", artist: "Kudasaibeats" },
+        { name: "in your arms", artist: "Saib" },
+        { name: "ikigai", artist: "Idealism" },
+        { name: "Herewego", artist: "Jinsang" },
+        { name: "dream of her", artist: "Kudasaibeats" },
+        { name: "Daydreaming", artist: "Saib" }
+      ];
+
+      const needed = preferredCount - chosen.tracks.length;
+      const candidatesToSearch = shuffleItems(STATIC_LOFI_BACKFILLS).slice(0, needed);
+      
+      const backfillRequests = candidatesToSearch.map(async (item) => {
+        const params = new URLSearchParams({
+          q: `track:"${item.name}" artist:"${item.artist}"`,
+          type: "track",
+          limit: "1",
+          market: "US",
+        });
+        const res = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const rawTrack = data.tracks?.items?.[0];
+        return rawTrack ? mapTrack(rawTrack) : null;
+      });
+      
+      const resolved = (await Promise.all(backfillRequests))
+        .filter((t): t is MappedTrack => Boolean(t));
+        
+      if (resolved.length > 0) {
+        const classifiedBackfill = await classifyTracksWithGroq(resolved);
+        const enrichedBackfill = await enrichTracksWithSpotifyPreviews(classifiedBackfill);
+        const merged = dedupeTracks([...enrichedTracks, ...enrichedBackfill]);
+        enrichedTracks = merged;
+        chosen = chooseTopTracks(
+          enrichedTracks,
+          agentConfig.exclude_keywords,
+          cleanPrompt,
+          preferredCount
+        );
+      }
     }
 
     return NextResponse.json({
