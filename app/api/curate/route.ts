@@ -1114,7 +1114,7 @@ export async function POST(req: Request) {
       agentConfig.exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()));
 
     // 1. First backfill: Try semantic search if we are short on tracks or playable previews
-    if ((chosen.tracks.length < preferredCount || playableCount < Math.min(3, preferredCount)) && uniqueTracks.length > 0) {
+    if (chosen.tracks.length < preferredCount || playableCount < Math.min(3, preferredCount)) {
       let extraTracks = await searchSpotifySemantic(
         {
           ...agentConfig,
@@ -1124,7 +1124,8 @@ export async function POST(req: Request) {
         cleanPrompt || (isLofiPrompt ? "lofi study beats" : "")
       );
       extraTracks = await classifyTracksWithGroq(extraTracks);
-      const merged = dedupeTracks([...enrichedTracks, ...extraTracks]);
+      const uniqueExtra = extraTracks.filter((t) => !parsedExistingIds.has(t.id));
+      const merged = dedupeTracks([...enrichedTracks, ...uniqueExtra]);
       enrichedTracks = await enrichTracksWithSpotifyPreviews(merged);
       chosen = chooseTopTracks(
         enrichedTracks,
@@ -1144,30 +1145,69 @@ export async function POST(req: Request) {
         { name: "ikigai", artist: "Idealism" },
         { name: "Herewego", artist: "Jinsang" },
         { name: "dream of her", artist: "Kudasaibeats" },
-        { name: "Daydreaming", artist: "Saib" }
+        { name: "Daydreaming", artist: "Saib" },
+        { name: "phat pug", artist: "Idealism" },
+        { name: "Affection", artist: "Jinsang" },
+        { name: "Smile from U", artist: "Saib" },
+        { name: "Spike Spiegel", artist: "Saib" },
+        { name: "controlla", artist: "Idealism" },
+        { name: "Both of Us", artist: "Idealism" },
+        { name: "Snow & Sand", artist: "Local Forecast" },
+        { name: "Vibe", artist: "Jinsang" },
+        { name: "Warm", artist: "Kudasaibeats" },
+        { name: "Riding Bicycle", artist: "Saib" },
+        { name: "Genesis", artist: "Jinsang" },
+        { name: "Snowfall", artist: "Idealism" },
+        { name: "Lullaby", artist: "Kudasaibeats" },
+        { name: "Summer Breeze", artist: "Saib" },
+        { name: "Journey", artist: "Jinsang" },
+        { name: "Phantasia", artist: "Idealism" },
+        { name: "Solitude", artist: "Kudasaibeats" },
+        { name: "Sunset", artist: "Saib" },
+        { name: "Smile", artist: "Jinsang" },
+        { name: "Aria", artist: "Idealism" },
+        { name: "Night Owl", artist: "Kudasaibeats" },
+        { name: "Elevate", artist: "Saib" },
+        { name: "Midnight", artist: "Jinsang" },
+        { name: "Reminiscing", artist: "Idealism" },
+        { name: "Lost", artist: "Kudasaibeats" },
+        { name: "Shanghai Nights", artist: "Saib" },
+        { name: "Glow", artist: "Jinsang" },
+        { name: "Another Time", artist: "Idealism" },
+        { name: "Whisper", artist: "Kudasaibeats" },
+        { name: "Around the Block", artist: "Saib" }
       ];
 
       const needed = preferredCount - chosen.tracks.length;
-      const candidatesToSearch = shuffleItems(STATIC_LOFI_BACKFILLS).slice(0, needed);
+      const resolved: MappedTrack[] = [];
+      const shuffledBackfills = shuffleItems(STATIC_LOFI_BACKFILLS);
       
-      const backfillRequests = candidatesToSearch.map(async (item) => {
-        const params = new URLSearchParams({
-          q: `track:"${item.name}" artist:"${item.artist}"`,
-          type: "track",
-          limit: "1",
-          market: "US",
-        });
-        const res = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (!res.ok) return null;
-        const data = await res.json();
-        const rawTrack = data.tracks?.items?.[0];
-        return rawTrack ? mapTrack(rawTrack) : null;
-      });
-      
-      const resolved = (await Promise.all(backfillRequests))
-        .filter((t): t is MappedTrack => Boolean(t));
+      for (const item of shuffledBackfills) {
+        if (resolved.length >= needed) break;
+        
+        try {
+          const params = new URLSearchParams({
+            q: `track:"${item.name}" artist:"${item.artist}"`,
+            type: "track",
+            limit: "1",
+            market: "US",
+          });
+          const res = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (!res.ok) continue;
+          const data = await res.json();
+          const rawTrack = data.tracks?.items?.[0];
+          if (rawTrack) {
+            const mapped = mapTrack(rawTrack);
+            if (mapped && !parsedExistingIds.has(mapped.id)) {
+              resolved.push(mapped);
+            }
+          }
+        } catch (err) {
+          console.error("Backfill track resolve error:", err);
+        }
+      }
         
       if (resolved.length > 0) {
         const classifiedBackfill = await classifyTracksWithGroq(resolved);
@@ -1181,6 +1221,28 @@ export async function POST(req: Request) {
           preferredCount
         );
       }
+    }
+
+    // 3. Third final backfill: If still short for any reason, run search without exclusions to guarantee matches
+    if (chosen.tracks.length < preferredCount) {
+      let finalExtra = await searchSpotifySemantic(
+        {
+          ...agentConfig,
+          exclude_keywords: [], // Drop exclusions to guarantee matches
+        },
+        token,
+        cleanPrompt
+      );
+      finalExtra = await classifyTracksWithGroq(finalExtra);
+      const uniqueFinal = finalExtra.filter((t) => !parsedExistingIds.has(t.id));
+      const merged = dedupeTracks([...enrichedTracks, ...uniqueFinal]);
+      enrichedTracks = await enrichTracksWithSpotifyPreviews(merged);
+      chosen = chooseTopTracks(
+        enrichedTracks,
+        agentConfig.exclude_keywords,
+        cleanPrompt,
+        preferredCount
+      );
     }
 
     return NextResponse.json({
