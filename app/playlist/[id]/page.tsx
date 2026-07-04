@@ -199,6 +199,7 @@ export default function PlaylistDetails() {
           body: JSON.stringify({
             prompt: plan.add_prompt,
             feedback: getFeedbackSummary(),
+            limit: plan.add_count,
           }),
         });
 
@@ -209,7 +210,7 @@ export default function PlaylistDetails() {
 
         const curateData = await curateRes.json();
         const existingIds = new Set(updatedTracks.map((track) => track.id));
-        const addCount = Math.min(5, Math.max(1, Number(plan.add_count) || 3));
+        const addCount = Math.min(10, Math.max(1, Number(plan.add_count) || 3));
         const newTracks = ((curateData.tracks || []) as Track[])
           .filter((track) => !existingIds.has(track.id))
           .slice(0, addCount);

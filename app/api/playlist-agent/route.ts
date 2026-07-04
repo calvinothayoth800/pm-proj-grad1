@@ -13,13 +13,18 @@ interface AgentEditPlan {
   add_count: number;
 }
 
-function sanitizePlan(
+export function sanitizePlan(
   value: Partial<AgentEditPlan>,
   trackIds: Set<string>
 ): AgentEditPlan {
-  const removeIds = Array.isArray(value.remove_track_ids)
-    ? value.remove_track_ids.filter((id) => trackIds.has(String(id)))
+  let removeIds = Array.isArray(value.remove_track_ids)
+    ? Array.from(new Set(value.remove_track_ids.filter((id) => trackIds.has(String(id)))))
     : [];
+
+  if (removeIds.length === trackIds.size && trackIds.size > 0) {
+    const maxToRemove = Math.floor(trackIds.size * 0.8);
+    removeIds = removeIds.slice(0, maxToRemove);
+  }
 
   const addPrompt =
     typeof value.add_prompt === "string" && value.add_prompt.trim()
@@ -29,7 +34,7 @@ function sanitizePlan(
   const addCountRaw =
     typeof value.add_count === "number" ? value.add_count : Number(value.add_count);
   const addCount = Number.isFinite(addCountRaw)
-    ? Math.min(5, Math.max(1, Math.round(addCountRaw)))
+    ? Math.min(10, Math.max(1, Math.round(addCountRaw)))
     : 3;
 
   return {
@@ -37,7 +42,7 @@ function sanitizePlan(
       typeof value.explanation === "string" && value.explanation.trim()
         ? value.explanation.trim()
         : "Playlist updated.",
-    remove_track_ids: Array.from(new Set(removeIds)),
+    remove_track_ids: removeIds,
     add_prompt: addPrompt,
     add_count: addCount,
   };
@@ -87,9 +92,11 @@ Rules:
 1. "remove_track_ids" MUST only contain IDs from the provided track list.
 2. Interpret semantics, not just keywords. "Remove all EDM" means remove electronic dance tracks, DJs, festival EDM, etc.
 3. If the playlist theme is Hindi, desi, Bollywood, or regional — remove western pop/english tracks that do not fit.
-4. If the user wants more songs, set "add_prompt" to a focused curation prompt matching the playlist theme. Set "add_count" between 1 and 5.
-5. If the command is only removal/filtering, set "add_prompt" to null.
-6. Be aggressive about mismatched tracks when the user complains about accuracy.`,
+4. If the user wants more songs, set "add_prompt" to a focused curation prompt matching the playlist theme. Set "add_count" between 1 and 10.
+5. If the command is only removal/filtering, set "add_prompt" to null and "add_count" to 0.
+6. Be aggressive about mismatched tracks when the user complains about accuracy.
+7. DO NOT remove tracks unless the user explicitly asks to remove, filter, clean, or reduce tracks. If the user only asks to add tracks, "remove_track_ids" MUST be empty.
+8. DO NOT add tracks unless the user explicitly asks to add, generate, or expand. If the user only asks to remove or filter, "add_prompt" MUST be null and "add_count" MUST be 0.`,
           },
           {
             role: "user",

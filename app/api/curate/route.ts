@@ -30,6 +30,7 @@ const ALLOWED_GENRES = [
   "j-pop",
   "jazz",
   "k-pop",
+  "lo-fi",
   "metal",
   "pop",
   "punk",
@@ -38,6 +39,7 @@ const ALLOWED_GENRES = [
   "romance",
   "sad",
   "soul",
+  "study",
   "synth-pop",
   "techno",
   "trance",
@@ -51,6 +53,7 @@ const DEFAULT_AGENT_OUTPUT: AgentOutput = {
   target_valence: 0.5,
   target_danceability: 0.5,
   exclude_keywords: [],
+  track_count: 5,
 };
 
 const FILLER_ARTIST_KEYWORDS = [
@@ -128,6 +131,8 @@ const FALLBACK_REFERENCE_ARTISTS: Record<string, string[]> = {
   rock: ["Arctic Monkeys", "Foo Fighters", "The Killers"],
   sad: ["Phoebe Bridgers", "Bon Iver", "Lana Del Rey"],
   soul: ["Leon Bridges", "Snoh Aalegra", "Daniel Caesar", "Alicia Keys"],
+  "lo-fi": ["idealism", "Jinsang", "Saib", "Elijah Who", "Kudasai", "Nujabes", "J Dilla"],
+  study: ["idealism", "Jinsang", "Saib", "Elijah Who", "Kudasai"],
   "synth-pop": ["The Weeknd", "Kavinsky", "CHVRCHES", "M83", "The Midnight"],
   techno: ["Charlotte de Witte", "Amelie Lens", "Adam Beyer"],
 };
@@ -151,6 +156,7 @@ interface AgentOutput {
   target_valence: number;
   target_danceability: number;
   exclude_keywords: string[];
+  track_count: number;
 }
 
 interface CurationFeedback {
@@ -162,7 +168,7 @@ interface CurationFeedback {
 interface SpotifyTrack {
   id?: string;
   name?: string;
-  artists?: Array<{ name?: string }>;
+  artists?: Array<{ id?: string; name?: string }>;
   external_urls?: { spotify?: string };
   album?: { images?: Array<{ url?: string }> };
   preview_url?: string | null;
@@ -173,10 +179,12 @@ interface MappedTrack {
   id: string;
   name: string;
   artist: string;
+  artist_id: string;
   url: string;
   imageUrl: string;
   previewUrl: string;
   popularity: number;
+  artist_genres: string[];
 }
 
 function clamp01(value: unknown, fallback: number) {
@@ -223,6 +231,8 @@ function sanitizeAgentOutput(value: Partial<AgentOutput>): AgentOutput {
 
   const seedArtists = sanitizeArtists(value.seed_artists);
 
+  const parsedTrackCount = typeof value.track_count === "number" ? value.track_count : Number(value.track_count);
+
   return {
     seed_genres:
       seedGenres.length > 0
@@ -245,6 +255,9 @@ function sanitizeAgentOutput(value: Partial<AgentOutput>): AgentOutput {
       DEFAULT_AGENT_OUTPUT.target_danceability
     ),
     exclude_keywords: sanitizeKeywords(value.exclude_keywords),
+    track_count: Number.isFinite(parsedTrackCount)
+      ? Math.min(10, Math.max(1, Math.round(parsedTrackCount)))
+      : 5,
   };
 }
 
@@ -255,11 +268,65 @@ function mapTrack(track: SpotifyTrack): MappedTrack | null {
     id: track.id,
     name: track.name || "Unknown Track",
     artist: track.artists?.[0]?.name || "Unknown Artist",
+    artist_id: track.artists?.[0]?.id || "",
     url: track.external_urls?.spotify || "",
     imageUrl: track.album?.images?.[0]?.url || "",
     previewUrl: track.preview_url || "",
     popularity: track.popularity || 0,
+    artist_genres: [],
   };
+}
+
+export async function fetchArtistGenres(artistIds: string[], token: string): Promise<Record<string, string[]>> {
+  const uniqueIds = Array.from(new Set(artistIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return {};
+
+  const maxPerRequest = 50;
+  const batches = [];
+
+  for (let i = 0; i < uniqueIds.length; i += maxPerRequest) {
+    batches.push(uniqueIds.slice(i, i + maxPerRequest));
+  }
+
+  const genreMap: Record<string, string[]> = {};
+
+  try {
+    const responses = await Promise.all(
+      batches.map(async (batch) => {
+        const res = await fetch(`https://api.spotify.com/v1/artists?ids=${batch.join(",")}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          console.warn(`Spotify Artist Fetch Failed: ${res.status}`);
+          return [];
+        }
+
+        const data = await res.json();
+        return data.artists || [];
+      })
+    );
+
+    responses.flat().forEach((artist: any) => {
+      if (artist && artist.id) {
+        genreMap[artist.id] = artist.genres || [];
+      }
+    });
+
+  } catch (error) {
+    console.error("Critical failure fetching artist genres:", error);
+  }
+
+  return genreMap;
+}
+
+export async function injectArtistGenres(tracks: MappedTrack[], token: string): Promise<MappedTrack[]> {
+  const artistIds = tracks.map((t) => t.artist_id);
+  const genresMap = await fetchArtistGenres(artistIds, token);
+  return tracks.map((track) => ({
+    ...track,
+    artist_genres: genresMap[track.artist_id] || [],
+  }));
 }
 
 function dedupeTracks(tracks: MappedTrack[]) {
@@ -309,17 +376,32 @@ function isKeywordStuffedTitle(title: string, prompt: string) {
   return matchedWords.length >= 2;
 }
 
-function filterTracks(
+export function filterTracks(
   tracks: MappedTrack[],
   excludeKeywords: string[],
-  prompt = ""
+  prompt = "",
+  options: {
+    checkPopularity?: boolean;
+    excludeKeywordsOverride?: string[];
+  } = {}
 ) {
+  const checkPopularity = options.checkPopularity ?? true;
+  const activeExcludes = options.excludeKeywordsOverride ?? excludeKeywords;
+
   return tracks.filter((track) => {
     const haystack = `${track.name} ${track.artist}`.toLowerCase();
 
-    const matchesExclusion = excludeKeywords.some((keyword) => {
+    const matchesExclusion = activeExcludes.some((keyword) => {
       const cleanKeyword = keyword.trim().toLowerCase();
-      return cleanKeyword && haystack.includes(cleanKeyword);
+      if (!cleanKeyword) return false;
+      if (haystack.includes(cleanKeyword)) return true;
+      if (
+        track.artist_genres &&
+        track.artist_genres.some((g) => g.toLowerCase().includes(cleanKeyword))
+      ) {
+        return true;
+      }
+      return false;
     });
     if (matchesExclusion) return false;
 
@@ -340,7 +422,7 @@ function filterTracks(
 
     if (prompt && isKeywordStuffedTitle(track.name, prompt)) return false;
 
-    if (track.popularity < MIN_TRACK_POPULARITY) return false;
+    if (checkPopularity && track.popularity < MIN_TRACK_POPULARITY) return false;
 
     if (track.previewUrl && !isValidSpotifyPreviewUrl(track.previewUrl)) return false;
 
@@ -355,56 +437,87 @@ function scoreTrackForSelection(track: MappedTrack) {
   return score;
 }
 
-function chooseTopTracks(
+export function chooseTopTracks(
   tracks: MappedTrack[],
   excludeKeywords: string[],
   prompt = "",
   preferredCount = 5
 ) {
-  const filteredTracks = filterTracks(tracks, excludeKeywords, prompt);
+  let filteredTracks = filterTracks(tracks, excludeKeywords, prompt, {
+    checkPopularity: true,
+    excludeKeywordsOverride: excludeKeywords,
+  });
+
+  let fallbackTier: 1 | 2 | 3 | null = null;
 
   if (filteredTracks.length === 0 && tracks.length > 0) {
-    const relaxed = [...tracks]
-      .filter((track) => !prompt || !isKeywordStuffedTitle(track.name, prompt))
-      .sort((a, b) => b.popularity - a.popularity);
+    filteredTracks = filterTracks(tracks, excludeKeywords, prompt, {
+      checkPopularity: false,
+      excludeKeywordsOverride: excludeKeywords,
+    });
+    fallbackTier = 1;
+  }
 
+  if (filteredTracks.length === 0 && tracks.length > 0) {
+    const primaryExclude = excludeKeywords.length > 0 ? [excludeKeywords[0]] : [];
+    filteredTracks = filterTracks(tracks, excludeKeywords, prompt, {
+      checkPopularity: false,
+      excludeKeywordsOverride: primaryExclude,
+    });
+    fallbackTier = 2;
+  }
+
+  if (filteredTracks.length === 0 && tracks.length > 0) {
+    filteredTracks = [...tracks].sort((a, b) => b.popularity - a.popularity);
+    fallbackTier = 3;
+  }
+
+  if (filteredTracks.length === 0) {
     return {
-      tracks: relaxed.slice(0, preferredCount),
+      tracks: [],
       warning: true,
+      fallbackTier: null,
     };
   }
 
-  const withPreview = filteredTracks.filter((track) => track.previewUrl);
-  const withoutPreview = filteredTracks.filter((track) => !track.previewUrl);
-  const candidatePool =
-    withPreview.length >= preferredCount
-      ? withPreview
-      : [...withPreview, ...withoutPreview];
+  let chosen: MappedTrack[] = [];
+  if (fallbackTier === 3) {
+    chosen = filteredTracks.slice(0, preferredCount);
+  } else {
+    const withPreview = filteredTracks.filter((track) => track.previewUrl);
+    const withoutPreview = filteredTracks.filter((track) => !track.previewUrl);
+    const candidatePool =
+      withPreview.length >= preferredCount
+        ? withPreview
+        : [...withPreview, ...withoutPreview];
 
-  const rankedTracks = [...candidatePool].sort(
-    (a, b) => scoreTrackForSelection(b) - scoreTrackForSelection(a)
-  );
+    const rankedTracks = [...candidatePool].sort(
+      (a, b) => scoreTrackForSelection(b) - scoreTrackForSelection(a)
+    );
 
-  const diverseTracks: MappedTrack[] = [];
-  const deferredTracks: MappedTrack[] = [];
-  const seenArtists = new Set<string>();
+    const diverseTracks: MappedTrack[] = [];
+    const deferredTracks: MappedTrack[] = [];
+    const seenArtists = new Set<string>();
 
-  for (const track of rankedTracks) {
-    const artistKey = track.artist.toLowerCase();
-    if (!seenArtists.has(artistKey)) {
-      seenArtists.add(artistKey);
-      diverseTracks.push(track);
-    } else {
-      deferredTracks.push(track);
+    for (const track of rankedTracks) {
+      const artistKey = track.artist.toLowerCase();
+      if (!seenArtists.has(artistKey)) {
+        seenArtists.add(artistKey);
+        diverseTracks.push(track);
+      } else {
+        deferredTracks.push(track);
+      }
     }
+
+    chosen = [...diverseTracks, ...deferredTracks].slice(0, preferredCount);
   }
 
-  const chosen = [...diverseTracks, ...deferredTracks].slice(0, preferredCount);
   const playableCount = chosen.filter((track) => track.previewUrl).length;
 
   return {
     tracks: chosen,
-    warning: chosen.length < 3 || playableCount < Math.min(3, chosen.length),
+    warning: fallbackTier !== null || chosen.length < 3 || playableCount < Math.min(3, chosen.length),
+    fallbackTier,
   };
 }
 
@@ -449,6 +562,34 @@ function getRegionalExcludes(prompt: string): string[] {
     "coldplay",
     "hozier",
     "the xx",
+  ];
+}
+
+function getLofiExcludes(prompt: string): string[] {
+  const lower = prompt.toLowerCase();
+  if (!/(lofi|lo-fi|study|coding|beats)/.test(lower)) return [];
+
+  return [
+    "kendrick lamar",
+    "j. cole",
+    "drake",
+    "travis scott",
+    "kanye west",
+    "eminem",
+    "future",
+    "playboi carti",
+    "lil baby",
+    "21 savage",
+    "taylor swift",
+    "dua lipa",
+    "the weeknd",
+    "ed sheeran",
+    "ariana grande",
+    "justin bieber",
+    "maroon 5",
+    "coldplay",
+    "billie eilish",
+    "post malone",
   ];
 }
 
@@ -574,7 +715,8 @@ Schema:
   "target_energy": 0.0,
   "target_valence": 0.0,
   "target_danceability": 0.0,
-  "exclude_keywords": ["string"]
+  "exclude_keywords": ["string"],
+  "track_count": 5
 }
 
 Rules:
@@ -589,7 +731,9 @@ Rules:
 9. If the user rejects synthy/electronic sounds, exclude synth-pop, electronic, edm, techno and add synth-related exclude keywords.
 10. Never return generic filler artists or royalty-free style names.
 11. NEVER use the user's prompt words as search keywords. You are generating API parameters only.
-12. For Hindi, desi, Bollywood, or Indian requests: seed_artists must be Indian artists only (Arijit Singh, Sunidhi Chauhan, Shreya Ghoshal, Pritam, Badshah, A.R. Rahman). exclude_keywords must include western pop artists like Taylor Swift, Dua Lipa, The Weeknd, Ed Sheeran.`,
+12. For Hindi, desi, Bollywood, or Indian requests: seed_artists must be Indian artists only (Arijit Singh, Sunidhi Chauhan, Shreya Ghoshal, Pritam, Badshah, A.R. Rahman). exclude_keywords must include western pop artists like Taylor Swift, Dua Lipa, The Weeknd, Ed Sheeran.
+13. "track_count" is the number of songs/tracks requested by the user, between 1 and 10. Default to 5 if not specified in the prompt.
+14. For lofi, study, coding, or chill beats prompts: seed_genres MUST include lo-fi or study. seed_artists must be lofi/chillhop artists only (Nujabes, J Dilla, idealism, Kudasai, Saib, Jinsang, Elijah Who). exclude_keywords must include mainstream hip-hop/pop artists (Kendrick Lamar, J. Cole, Drake, Taylor Swift, etc.) to keep it instrumental/chill.`,
             },
             {
               role: "user",
@@ -603,6 +747,9 @@ Rules:
     );
 
     if (!response.ok) {
+      if (response.status === 429) {
+        console.warn("Groq API rate limit hit (429); falling back to default agent output.");
+      }
       throw new Error(`Groq API returned ${response.status}`);
     }
 
@@ -750,7 +897,7 @@ async function enrichTracksWithSpotifyPreviews(
 
 export async function POST(req: Request) {
   try {
-    const { prompt, feedback } = await req.json();
+    const { prompt, feedback, limit } = await req.json();
     if (typeof prompt !== "string" || !prompt.trim()) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
@@ -775,8 +922,16 @@ export async function POST(req: Request) {
     agentConfig.exclude_keywords = sanitizeKeywords([
       ...agentConfig.exclude_keywords,
       ...getRegionalExcludes(cleanPrompt),
+      ...getLofiExcludes(cleanPrompt),
     ]);
     const token = await getSpotifyToken();
+
+    const preferredCount =
+      typeof limit === "number"
+        ? Math.min(10, Math.max(1, limit))
+        : typeof agentConfig.track_count === "number"
+        ? Math.min(10, Math.max(1, agentConfig.track_count))
+        : 5;
 
     let source: "recommendations" | "semantic_search" = "semantic_search";
     let warning = false;
@@ -801,6 +956,8 @@ export async function POST(req: Request) {
       tracks = await searchSpotifySemantic(agentConfig, token, cleanPrompt);
     }
 
+    tracks = await injectArtistGenres(tracks, token);
+
     const uniqueTracks = dedupeTracks(tracks).filter(
       (track) => !feedbackContext?.dislikedTrackIds?.includes(track.id)
     );
@@ -808,22 +965,25 @@ export async function POST(req: Request) {
     let chosen = chooseTopTracks(
       enrichedTracks,
       agentConfig.exclude_keywords,
-      cleanPrompt
+      cleanPrompt,
+      preferredCount
     );
 
     const playableCount = chosen.tracks.filter((track) => track.previewUrl).length;
     if (playableCount < 3 && uniqueTracks.length > 0) {
-      const extraTracks = await searchSpotifySemantic(
+      let extraTracks = await searchSpotifySemantic(
         agentConfig,
         token,
         cleanPrompt
       );
+      extraTracks = await injectArtistGenres(extraTracks, token);
       const merged = dedupeTracks([...enrichedTracks, ...extraTracks]);
       enrichedTracks = await enrichTracksWithSpotifyPreviews(merged);
       chosen = chooseTopTracks(
         enrichedTracks,
         agentConfig.exclude_keywords,
-        cleanPrompt
+        cleanPrompt,
+        preferredCount
       );
     }
 
@@ -833,6 +993,7 @@ export async function POST(req: Request) {
       source,
       agent: agentConfig,
       excludeKeywords: agentConfig.exclude_keywords,
+      fallbackTier: chosen.fallbackTier,
     });
   } catch (error: unknown) {
     console.error("API Curate handler error:", error);
