@@ -590,6 +590,20 @@ function getLofiExcludes(prompt: string): string[] {
     "coldplay",
     "billie eilish",
     "post malone",
+    "tyler, the creator",
+    "kali uchis",
+    "mac miller",
+    "a$ap rocky",
+    "kid cudi",
+    "lil uzi vert",
+    "rap",
+    "vocals",
+    "vocal",
+    "singing",
+    "singer",
+    "pop",
+    "r-n-b",
+    "r&b",
   ];
 }
 
@@ -628,9 +642,10 @@ function buildSemanticSearchQueries(agentConfig: AgentOutput, prompt = "") {
     )
   );
 
-  const queries = artistPool.slice(0, 10).map((artist) => `artist:"${artist}"`);
+  const artistQueries = artistPool.slice(0, 8).map((artist) => `artist:"${artist}"`);
+  const genreQueries = seedGenres.map((genre) => `genre:"${genre}"`);
 
-  return shuffleItems(queries);
+  return shuffleItems([...artistQueries, ...genreQueries]);
 }
 
 async function getSpotifyToken(): Promise<string> {
