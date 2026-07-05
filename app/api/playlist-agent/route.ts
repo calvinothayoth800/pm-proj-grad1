@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { classifyTracksWithGroq } from "../curate/route";
+import { classifyTracksWithGroq } from "../../../lib/curation-engine";
 
 interface PlaylistTrack {
   id: string;

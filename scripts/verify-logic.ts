@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import test from "node:test";
-import { filterTracks, chooseTopTracks, MappedTrack, buildSemanticSearchQueries, classifyTracksWithGroq } from "../app/api/curate/route.js";
+import { filterTracks, chooseTopTracks, MappedTrack, buildSemanticSearchQueries, classifyTracksWithGroq } from "../lib/curation-engine";
 import { sanitizePlan } from "../app/api/playlist-agent/route.js";
 
 // Dummy tracks
