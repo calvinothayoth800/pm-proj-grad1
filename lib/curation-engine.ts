@@ -919,29 +919,15 @@ export function buildSemanticSearchQueries(agentConfig: AgentOutput, prompt = ""
     )
   );
 
-  const artistQueries = [];
-  if (artistPool.length > 0) {
-    const combined = artistPool
-      .slice(0, 6)
-      .map((artist) => `artist:"${artist}"`)
-      .join(" OR ");
-    artistQueries.push(combined);
-  }
+  const artistQueries = artistPool.slice(0, 3).map((artist) => `artist:"${artist}"`);
+  const genreQueries = seedGenres.map((genre) => {
+    if (genre === "lo-fi" || genre === "study" || genre === "chill") {
+      return `${genre} beats`;
+    }
+    return `genre:"${genre}"`;
+  });
 
-  const genreQueries = [];
-  if (seedGenres.length > 0) {
-    const combined = seedGenres
-      .map((genre) => {
-        if (genre === "lo-fi" || genre === "study" || genre === "chill") {
-          return `${genre} beats`;
-        }
-        return `genre:"${genre}"`;
-      })
-      .join(" OR ");
-    genreQueries.push(combined);
-  }
-
-  return [...priorityQueries, ...artistQueries, ...genreQueries];
+  return [...priorityQueries, ...shuffleItems([...artistQueries, ...genreQueries])];
 }
 
 export async function getSpotifyToken(): Promise<string> {
