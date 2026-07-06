@@ -266,7 +266,7 @@ export function sanitizeAgentOutput(value: Partial<AgentOutput>): AgentOutput {
   };
 }
 
-export function mapTrack(track: SpotifyTrack): MappedTrack | null {
+export function mapTrack(track: SpotifyTrack, indexInSearch = 0): MappedTrack | null {
   if (!track.id) return null;
 
   return {
@@ -277,7 +277,9 @@ export function mapTrack(track: SpotifyTrack): MappedTrack | null {
     url: track.external_urls?.spotify || "",
     imageUrl: track.album?.images?.[0]?.url || "",
     previewUrl: track.preview_url || "",
-    popularity: track.popularity || 0,
+    popularity: typeof track.popularity === "number" && track.popularity > 0
+      ? track.popularity
+      : Math.max(1, 100 - indexInSearch * 5),
     artist_genres: [],
   };
 }
@@ -372,6 +374,26 @@ export const KNOWN_TRACK_GENRES: Record<string, string[]> = {
   "daydreaming": ["lofi", "chillhop", "beats", "instrumental"]
 };
 
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = 5,
+  delay = 3000
+): Promise<Response> {
+  for (let i = 0; i < retries; i++) {
+    const res = await fetch(url, options);
+    if (res.ok) return res;
+    if (res.status === 429 && i < retries - 1) {
+      console.warn(`Groq 429 rate limit hit. Retrying in ${delay}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay *= 2;
+      continue;
+    }
+    return res;
+  }
+  throw new Error(`Fetch failed after ${retries} retries`);
+}
+
 export async function classifyTracksWithGroq(tracks: MappedTrack[]): Promise<MappedTrack[]> {
   if (tracks.length === 0) {
     return tracks;
@@ -415,7 +437,7 @@ export async function classifyTracksWithGroq(tracks: MappedTrack[]): Promise<Map
   }));
 
   try {
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const response = await fetchWithRetry("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${groqApiKey}`,
@@ -444,7 +466,8 @@ Be extremely precise:
     });
 
     if (!response.ok) {
-      console.warn("Groq genre classification failed, using fallbacks.");
+      const errText = await response.text().catch(() => "no body");
+      console.warn(`Groq genre classification failed: Status ${response.status} - ${errText}`);
       return [...resolvedTracks, ...tracksToClassify];
     }
 
@@ -454,7 +477,10 @@ Be extremely precise:
 
     const classifiedTracks = tracksToClassify.map((track) => ({
       ...track,
-      artist_genres: Array.from(new Set(classifications[track.id] || [])),
+      artist_genres: Array.from(new Set([
+        ...(track.artist_genres || []),
+        ...(classifications[track.id] || [])
+      ])),
     }));
 
     return [...resolvedTracks, ...classifiedTracks];
@@ -594,9 +620,7 @@ export function chooseTopTracks(
     fallbackTier = 1;
   }
 
-  const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(prompt) || 
-    excludeKeywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
-    !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(prompt);
+  const isLofiPrompt = /(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(prompt);
 
   const coreLofiExcludes = isLofiPrompt 
     ? excludeKeywords.filter(k => ["rap", "vocals", "vocal", "singing", "singer", "pop", "edm", "rnb", "r-n-b", "house", "dance"].includes(k.toLowerCase()))
@@ -804,7 +828,12 @@ export function buildSemanticSearchQueries(agentConfig: AgentOutput, prompt = ""
   );
 
   const artistQueries = artistPool.slice(0, 8).map((artist) => `artist:"${artist}"`);
-  const genreQueries = seedGenres.map((genre) => `genre:"${genre}"`);
+  const genreQueries = seedGenres.map((genre) => {
+    if (genre === "lo-fi" || genre === "study" || genre === "chill") {
+      return `${genre} beats`;
+    }
+    return `genre:"${genre}"`;
+  });
 
   return [...priorityQueries, ...shuffleItems([...artistQueries, ...genreQueries])];
 }
@@ -869,7 +898,7 @@ export async function getGroqCurationAgent(
   }
 
   try {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         method: "POST",
@@ -975,7 +1004,7 @@ export async function fetchSpotifyRecommendations(
 
   const data = await response.json();
   return ((data.tracks || []) as SpotifyTrack[])
-    .map(mapTrack)
+    .map((track, idx) => mapTrack(track, idx))
     .filter((track): track is MappedTrack => Boolean(track));
 }
 
@@ -989,9 +1018,9 @@ export async function searchSpotifySemantic(
     const params = new URLSearchParams({
       q: query,
       type: "track",
-      limit: "10",
+      limit: "5",
       market: "US",
-      offset: String(Math.floor(Math.random() * 10)),
+      offset: "0",
     });
 
     const response = await fetch(
@@ -1013,7 +1042,7 @@ export async function searchSpotifySemantic(
 
     const data = await response.json();
     return ((data.tracks?.items || []) as SpotifyTrack[])
-      .map(mapTrack)
+      .map((track, idx) => mapTrack(track, idx))
       .filter((track): track is MappedTrack => Boolean(track))
       .sort((a, b) => b.popularity - a.popularity)
       .slice(0, 12);

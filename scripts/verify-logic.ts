@@ -357,43 +357,21 @@ test("Curator Nuances & Edge Cases", async (t) => {
     assert.deepStrictEqual(resolved[0].artist_genres, ["lofi", "chillhop", "beats", "instrumental"]);
   });
 
-  await t.test("should identify isLofiPrompt as false when prompt contains 'rap' explicitly even if exclusions have rap", () => {
+  await t.test("should identify isLofiPrompt as false when prompt does not contain lofi keywords", () => {
     const cleanPrompt = "add 1 rap song";
-    const exclude_keywords = ["rap", "vocals", "pop", "edm"];
-    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
-      exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
-      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
-    
+    const isLofiPrompt = /(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt);
     assert.strictEqual(isLofiPrompt, false);
   });
 
-  await t.test("should identify isLofiPrompt as false when prompt contains 'edm' explicitly", () => {
-    const cleanPrompt = "play some edm dance music";
-    const exclude_keywords = ["rap", "vocals", "pop", "edm"];
-    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
-      exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
-      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
-    
-    assert.strictEqual(isLofiPrompt, false);
+  await t.test("should identify isLofiPrompt as true for hybrid lofi/rap prompts", () => {
+    const cleanPrompt = "Chill lofi hip-hop beats for coding add 1 rap song";
+    const isLofiPrompt = /(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt);
+    assert.strictEqual(isLofiPrompt, true);
   });
 
-  await t.test("should identify isLofiPrompt as false when prompt contains 'pop' explicitly", () => {
-    const cleanPrompt = "add pop music";
-    const exclude_keywords = ["rap", "vocals", "pop", "edm"];
-    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
-      exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
-      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
-    
-    assert.strictEqual(isLofiPrompt, false);
-  });
-
-  await t.test("should identify isLofiPrompt as true for standard lofi prompt without exclusions override", () => {
+  await t.test("should identify isLofiPrompt as true for standard lofi prompt", () => {
     const cleanPrompt = "lofi study beats";
-    const exclude_keywords = ["rap", "vocals", "pop", "edm"];
-    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
-      exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
-      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
-    
+    const isLofiPrompt = /(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt);
     assert.strictEqual(isLofiPrompt, true);
   });
 

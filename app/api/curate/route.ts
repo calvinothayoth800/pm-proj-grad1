@@ -100,8 +100,6 @@ export async function POST(req: Request) {
       tracks = await searchSpotifySemantic(agentConfig, token, cleanPrompt);
     }
 
-    tracks = await classifyTracksWithGroq(tracks);
-
     const parsedExistingIds = Array.isArray(existingTrackIds)
       ? new Set<string>(existingTrackIds.map(String))
       : new Set<string>();
@@ -109,8 +107,14 @@ export async function POST(req: Request) {
     let uniqueTracks = dedupeTracks(tracks).filter(
       (track) => !feedbackContext?.dislikedTrackIds?.includes(track.id) && !parsedExistingIds.has(track.id)
     );
-    uniqueTracks = shuffleItems(uniqueTracks);
-    let enrichedTracks = await enrichTracksWithSpotifyPreviews(uniqueTracks);
+
+    // Limit candidates to top 15 for classification to avoid token limits
+    const tracksToClassify = uniqueTracks.slice(0, 15);
+    const resolvedTracks = await injectArtistGenres(tracksToClassify, token);
+    const classifiedTracks = await classifyTracksWithGroq(resolvedTracks);
+
+    const shuffledClassified = shuffleItems(classifiedTracks);
+    let enrichedTracks = await enrichTracksWithSpotifyPreviews(shuffledClassified);
     let chosen = chooseTopTracks(
       enrichedTracks,
       agentConfig.exclude_keywords,
@@ -119,9 +123,7 @@ export async function POST(req: Request) {
     );
 
     let playableCount = chosen.tracks.filter((track) => track.previewUrl).length;
-    const isLofiPrompt = (/(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt) || 
-      agentConfig.exclude_keywords.some(k => ["rap", "vocals", "pop", "edm"].includes(k.toLowerCase()))) &&
-      !/(rap|pop|vocal|edm|electronic|house|sing)/i.test(cleanPrompt);
+    const isLofiPrompt = /(lo[ -]?fi|chill|study|sleep|ambient|coding|work|relax)/i.test(cleanPrompt);
 
     // 1. First backfill: Try semantic search if we are short on tracks or playable previews
     if (chosen.tracks.length < preferredCount || playableCount < Math.min(3, preferredCount)) {
@@ -133,9 +135,12 @@ export async function POST(req: Request) {
         token,
         cleanPrompt || (isLofiPrompt ? "lofi study beats" : "")
       );
-      extraTracks = await classifyTracksWithGroq(extraTracks);
-      const uniqueExtra = extraTracks.filter((t) => !parsedExistingIds.has(t.id));
-      const merged = dedupeTracks([...enrichedTracks, ...uniqueExtra]);
+      const uniqueExtra = dedupeTracks(extraTracks).filter((t) => !parsedExistingIds.has(t.id));
+      const tracksToClassifyExtra = uniqueExtra.slice(0, 15);
+      const resolvedExtra = await injectArtistGenres(tracksToClassifyExtra, token);
+      const classifiedExtra = await classifyTracksWithGroq(resolvedExtra);
+
+      const merged = dedupeTracks([...enrichedTracks, ...classifiedExtra]);
       enrichedTracks = await enrichTracksWithSpotifyPreviews(merged);
       chosen = chooseTopTracks(
         enrichedTracks,
@@ -220,7 +225,8 @@ export async function POST(req: Request) {
       }
         
       if (resolved.length > 0) {
-        const classifiedBackfill = await classifyTracksWithGroq(resolved);
+        const resolvedWithGenres = await injectArtistGenres(resolved, token);
+        const classifiedBackfill = await classifyTracksWithGroq(resolvedWithGenres);
         const enrichedBackfill = await enrichTracksWithSpotifyPreviews(classifiedBackfill);
         const merged = dedupeTracks([...enrichedTracks, ...enrichedBackfill]);
         enrichedTracks = merged;
@@ -243,9 +249,12 @@ export async function POST(req: Request) {
         token,
         cleanPrompt
       );
-      finalExtra = await classifyTracksWithGroq(finalExtra);
-      const uniqueFinal = finalExtra.filter((t) => !parsedExistingIds.has(t.id));
-      const merged = dedupeTracks([...enrichedTracks, ...uniqueFinal]);
+      const uniqueFinal = dedupeTracks(finalExtra).filter((t) => !parsedExistingIds.has(t.id));
+      const tracksToClassifyFinal = uniqueFinal.slice(0, 15);
+      const resolvedFinal = await injectArtistGenres(tracksToClassifyFinal, token);
+      const classifiedFinal = await classifyTracksWithGroq(resolvedFinal);
+
+      const merged = dedupeTracks([...enrichedTracks, ...classifiedFinal]);
       enrichedTracks = await enrichTracksWithSpotifyPreviews(merged);
       chosen = chooseTopTracks(
         enrichedTracks,
