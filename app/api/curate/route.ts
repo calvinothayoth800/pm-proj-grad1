@@ -131,8 +131,8 @@ export async function POST(req: Request) {
       playableCount = chosen.tracks.filter((track) => track.previewUrl).length;
     }
 
-    // 2. Second fail-safe backfill: Use static verified lofi tracks if it's a lofi prompt and we're still short
-    if (isLofiPrompt && chosen.tracks.length < preferredCount) {
+    // 2. Second fail-safe backfill: Use static verified tracks if we're still short
+    if (chosen.tracks.length < preferredCount) {
       const STATIC_LOFI_FILLERS = [
         { name: "Quiet", artist: "Jinsang" },
         { name: "Attached", artist: "Kudasaibeats" },

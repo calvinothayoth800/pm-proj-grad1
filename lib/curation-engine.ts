@@ -302,7 +302,7 @@ export async function fetchArtistGenres(artistIds: string[], token: string): Pro
       batches.map(async (batch) => {
         const res = await fetchWithRetry(`https://api.spotify.com/v1/artists?ids=${batch.join(",")}`, {
           headers: { Authorization: `Bearer ${token}` },
-        });
+        }, 2);
 
         if (!res.ok) {
           console.warn(`Spotify Artist Fetch Failed: ${res.status}`);
@@ -1129,7 +1129,8 @@ export async function searchSpotifySemantic(
           headers: {
             Authorization: `Bearer ${token}`,
           },
-        }
+        },
+        2 // limit search retries to fail fast when globally throttled
       );
 
       if (!response.ok) {
