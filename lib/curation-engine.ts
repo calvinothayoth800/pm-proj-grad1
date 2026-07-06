@@ -1106,10 +1106,14 @@ export async function searchSpotifySemantic(
   prompt = ""
 ) {
   const queries = buildSemanticSearchQueries(agentConfig, prompt);
-  const results: MappedTrack[][] = [];
 
-  for (const query of queries) {
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const requests = queries.map(async (query, idx) => {
     try {
+      // Stagger each request startup by 150ms to avoid simultaneous burst gateway limits
+      await delay(idx * 150);
+
       const params = new URLSearchParams({
         q: query,
         type: "track",
@@ -1132,22 +1136,22 @@ export async function searchSpotifySemantic(
         console.error(
           `Spotify semantic search failed for "${query}": ${response.status} ${errorText}`
         );
-        continue;
+        return [];
       }
 
       const data = await response.json();
-      const tracks = ((data.tracks?.items || []) as SpotifyTrack[])
+      return ((data.tracks?.items || []) as SpotifyTrack[])
         .map((track, idx) => mapTrack(track, idx))
         .filter((track): track is MappedTrack => Boolean(track))
         .sort((a, b) => b.popularity - a.popularity)
         .slice(0, 12);
-
-      results.push(tracks);
     } catch (err: any) {
       console.error(`Error searching Spotify for "${query}":`, err.message);
+      return [];
     }
-  }
+  });
 
+  const results = await Promise.all(requests);
   const interleavedTracks: MappedTrack[] = [];
   const maxResultLength = Math.max(...results.map((tracks) => tracks.length), 0);
 
