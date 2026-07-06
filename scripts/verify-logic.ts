@@ -316,6 +316,22 @@ test("Curator Nuances & Edge Cases", async (t) => {
     assert.strictEqual(hasStrongRemovalVerb, true);
   });
 
+  await t.test("should match flexible pop removal command like 'Remove all pop songs and add 2 heavy bass tracks'", () => {
+    const command = "Remove all pop songs and add 2 heavy bass tracks";
+    const commandLower = command.toLowerCase();
+    const isAdditionQuery = /\b(add|fill|expand|introduce|more|insert)\b/i.test(commandLower);
+    const hasStrongRemovalVerb = /\b(remove|delete|clean|strip|purge)\b/i.test(commandLower);
+    const shouldRunRemovals = !isAdditionQuery || hasStrongRemovalVerb;
+
+    const isPopRemove = shouldRunRemovals && (
+      /\b(remove|delete|clean|strip|purge|no|exclude|drop)\b/i.test(commandLower) && /\bpop\b/i.test(commandLower)
+    );
+
+    assert.strictEqual(isAdditionQuery, true);
+    assert.strictEqual(hasStrongRemovalVerb, true);
+    assert.strictEqual(isPopRemove, true);
+  });
+
   await t.test("should classify Kudasaibeats - Attached as lofi/instrumental using local dictionary", async () => {
     const track: MappedTrack = {
       id: "track_attached",

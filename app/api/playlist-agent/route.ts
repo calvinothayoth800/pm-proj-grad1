@@ -204,10 +204,20 @@ export async function POST(req: Request) {
     const hasStrongRemovalVerb = /\b(remove|delete|clean|strip|purge)\b/i.test(commandLower);
     const shouldRunRemovals = !isAdditionQuery || hasStrongRemovalVerb;
 
-    const isLofiRefine = shouldRunRemovals && /\b(remove non[ -]?lo[ -]?fi|keep only lo[ -]?fi|only lo[ -]?fi|remove non[ -]study|remove non[ -]chill)\b/i.test(commandLower);
-    const isRapRemove = shouldRunRemovals && /\b(remove rap|no rap|instrumental only|only instrumental|remove vocals|no vocals|no singing)\b/i.test(commandLower);
-    const isPopRemove = shouldRunRemovals && /\b(remove pop|no pop)\b/i.test(commandLower);
-    const isEdmRemove = shouldRunRemovals && /\b(remove edm|no edm|remove electronic)\b/i.test(commandLower);
+    const isLofiRefine = shouldRunRemovals && (
+      /\b(keep only|only|strictly)\b/i.test(commandLower) && /\b(lo[ -]?fi|study|chill)\b/i.test(commandLower) ||
+      /\b(remove|delete|clean|strip|purge|no|exclude|drop)\b/i.test(commandLower) && /\b(non[ -]?lo[ -]?fi|non[ -]?study|non[ -]?chill)\b/i.test(commandLower)
+    );
+    const isRapRemove = shouldRunRemovals && (
+      (/\b(remove|delete|clean|strip|purge|no|exclude|drop)\b/i.test(commandLower) && /\b(rap|vocals|singing|singer)\b/i.test(commandLower)) ||
+      /\b(instrumental only|only instrumental|no vocals|no singing)\b/i.test(commandLower)
+    );
+    const isPopRemove = shouldRunRemovals && (
+      /\b(remove|delete|clean|strip|purge|no|exclude|drop)\b/i.test(commandLower) && /\bpop\b/i.test(commandLower)
+    );
+    const isEdmRemove = shouldRunRemovals && (
+      /\b(remove|delete|clean|strip|purge|no|exclude|drop)\b/i.test(commandLower) && /\b(edm|electronic|house|techno|club|dance)\b/i.test(commandLower)
+    );
 
     const extraRemoveIds = new Set<string>();
     const protectedIds = new Set<string>();

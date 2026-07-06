@@ -927,7 +927,12 @@ export function buildSemanticSearchQueries(agentConfig: AgentOutput, prompt = ""
     return `genre:"${genre}"`;
   });
 
-  return [...priorityQueries, ...shuffleItems([...artistQueries, ...genreQueries])];
+  const promptQueries = [];
+  if (prompt && prompt.trim()) {
+    promptQueries.push(prompt.trim());
+  }
+
+  return [...priorityQueries, ...promptQueries, ...shuffleItems([...artistQueries, ...genreQueries])];
 }
 
 export async function getSpotifyToken(): Promise<string> {
