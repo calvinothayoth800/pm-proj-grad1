@@ -939,7 +939,7 @@ Rules:
 10. Never return generic filler artists or royalty-free style names.
 11. NEVER use the user's prompt words as search keywords. You are generating API parameters only.
 12. For Hindi, desi, Bollywood, or Indian requests: seed_artists must be Indian artists only (Arijit Singh, Sunidhi Chauhan, Shreya Ghoshal, Pritam, Badshah, A.R. Rahman). exclude_keywords must include western pop artists like Taylor Swift, Dua Lipa, The Weeknd, Ed Sheeran.
-13. "track_count" is the number of songs/tracks requested by the user, between 1 and 10. Default to 5 if not specified in the prompt.
+13. "track_count" is the size of the entire playlist, between 1 and 10 (default to 5 if not specified). If the user asks for a playlist of a certain vibe/genre AND specifies adding a small number of specific tracks (e.g. "lofi playlist and 1 rap song" or "chill beats and 2 pop tracks"), do NOT set "track_count" to that small number (1 or 2). Instead, set it to the total size they requested for the whole playlist (e.g. 5 lofi beats + 1 rap song = 6 tracks, or default to 5/6 tracks).
 14. For lofi, study, coding, or chill beats prompts: seed_genres MUST include lo-fi or study. seed_artists must be lofi/chillhop artists only (Nujabes, J Dilla, idealism, Kudasai, Saib, Jinsang, Elijah Who). exclude_keywords must include mainstream hip-hop/pop artists (Kendrick Lamar, J. Cole, Drake, Taylor Swift, etc.) to keep it instrumental/chill.
 15. If the user explicitly requests a specific artist, add the artist's name to "target_artist". If they request a specific song title, add it to "target_track".`,
             },

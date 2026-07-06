@@ -125,7 +125,7 @@ async function runPromptSweep() {
     // 2. Negative Semantics
     "spacious ambient for study no vocals",
     // 3. Hybrid / Addition / Exclusions
-    "Chill lofi beats for coding add 1 rap song",
+    "Chill lofi hip-hop beats for coding and 1 rap song",
     // 4. Slang / Typos
     "lofy beatzzz with no pop music",
     // 5. Contradictory / Edge case
@@ -151,6 +151,7 @@ async function runPromptSweep() {
       await new Promise((resolve) => setTimeout(resolve, 16000));
       
       const agentConfig = await getGroqCurationAgent(prompt);
+      console.log(`  Parsed track_count: ${agentConfig.track_count}`);
       console.log(`  Target artist: ${agentConfig.target_artist}`);
       console.log(`  Target track: ${agentConfig.target_track}`);
       console.log(`  Excludes: ${agentConfig.exclude_keywords.join(", ")}`);
@@ -161,16 +162,20 @@ async function runPromptSweep() {
       const candidates = uniqueTracks.slice(0, 15);
       const classified = await classifyTracksWithGroq(candidates);
       
-      const chosen = chooseTopTracks(classified, agentConfig.exclude_keywords, prompt, 5);
+      const chosen = chooseTopTracks(classified, agentConfig.exclude_keywords, prompt, agentConfig.track_count || 5);
       
       console.log(`  Chosen Tracks:`);
       chosen.tracks.forEach((t, index) => {
         console.log(`    ${index + 1}. ${t.name} - ${t.artist} (Genres: ${t.artist_genres.join(", ")})`);
       });
 
-      // Basic assertion: verify we got tracks
+      // Assertions
       if (chosen.tracks.length === 0) {
         throw new Error("Returned 0 curated tracks");
+      }
+
+      if (chosen.tracks.length < 3) {
+        throw new Error(`Playlist was truncated. Returned only ${chosen.tracks.length} tracks. Parsed track_count was ${agentConfig.track_count}.`);
       }
 
       console.log("  STATUS: PASS\n");
