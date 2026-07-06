@@ -374,7 +374,7 @@ export const KNOWN_TRACK_GENRES: Record<string, string[]> = {
   "daydreaming": ["lofi", "chillhop", "beats", "instrumental"]
 };
 
-async function fetchWithRetry(
+export async function fetchWithRetry(
   url: string,
   options: RequestInit,
   retries = 5,

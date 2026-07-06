@@ -15,6 +15,7 @@ import {
   enrichTracksWithSpotifyPreviews,
   chooseTopTracks,
   mapTrack,
+  injectArtistGenres,
 } from "../../../lib/curation-engine";
 
 export async function POST(req: Request) {

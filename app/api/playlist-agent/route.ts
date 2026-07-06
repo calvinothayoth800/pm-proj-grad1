@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { classifyTracksWithGroq } from "../../../lib/curation-engine";
+import { classifyTracksWithGroq, fetchWithRetry } from "../../../lib/curation-engine";
 
 interface PlaylistTrack {
   id: string;
@@ -68,7 +68,7 @@ async function getPlaylistEditPlan(
     genres: track.artist_genres || [],
   }));
 
-  const response = await fetch(
+  const response = await fetchWithRetry(
     "https://api.groq.com/openai/v1/chat/completions",
     {
       method: "POST",
