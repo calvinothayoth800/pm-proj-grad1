@@ -48,27 +48,6 @@ export async function POST(req: Request) {
       ...getLofiExcludes(cleanPrompt),
     ]);
 
-    const promptLower = cleanPrompt.toLowerCase();
-    if (promptLower.includes("rap") || promptLower.includes("hiphop") || promptLower.includes("hip-hop")) {
-      agentConfig.exclude_keywords = agentConfig.exclude_keywords.filter(
-        k => !["rap", "hip hop", "hiphop"].includes(k.toLowerCase())
-      );
-    }
-    if (promptLower.includes("vocal") || promptLower.includes("sing") || promptLower.includes("song")) {
-      agentConfig.exclude_keywords = agentConfig.exclude_keywords.filter(
-        k => !["vocal", "vocals", "singing", "singer"].includes(k.toLowerCase())
-      );
-    }
-    if (promptLower.includes("pop")) {
-      agentConfig.exclude_keywords = agentConfig.exclude_keywords.filter(
-        k => !["pop"].includes(k.toLowerCase())
-      );
-    }
-    if (promptLower.includes("edm") || promptLower.includes("electronic") || promptLower.includes("house") || promptLower.includes("techno")) {
-      agentConfig.exclude_keywords = agentConfig.exclude_keywords.filter(
-        k => !["edm", "electronic", "house", "techno", "dance"].includes(k.toLowerCase())
-      );
-    }
     const token = await getSpotifyToken();
 
     const preferredCount =

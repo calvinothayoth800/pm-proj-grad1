@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import test from "node:test";
-import { filterTracks, chooseTopTracks, MappedTrack, buildSemanticSearchQueries, classifyTracksWithGroq } from "../lib/curation-engine";
+import { filterTracks, chooseTopTracks, MappedTrack, buildSemanticSearchQueries, classifyTracksWithGroq, parseHybridAddition } from "../lib/curation-engine";
 import { sanitizePlan } from "../app/api/playlist-agent/route.js";
 
 // Dummy tracks
@@ -268,29 +268,52 @@ test("Curator Nuances & Edge Cases", async (t) => {
 
   await t.test("should match additive command with typo like 'aadd 1 rap song' in addition guard check", () => {
     const command = "aadd 1 rap song";
-    const isRemovalQuery = /(remove|delete|clean|no|only|strip|keep|refine|filter|purge)/i.test(command);
-    const isAdditionQuery = /(add|fill|expand|introduce|more|insert)/i.test(command);
+    const commandLower = command.toLowerCase();
+    const isAdditionQuery = /\b(add|fill|expand|introduce|more|insert)\b/i.test(commandLower) || commandLower.includes("aadd");
+    const hasStrongRemovalVerb = /\b(remove|delete|clean|strip|purge)\b/i.test(commandLower);
     
     assert.strictEqual(isAdditionQuery, true);
-    assert.strictEqual(isRemovalQuery, false);
+    assert.strictEqual(hasStrongRemovalVerb, false);
+  });
+
+  await t.test("should treat 'add 1 pop song no rap' as purely additive (removals disabled)", () => {
+    const command = "add 1 pop song no rap";
+    const commandLower = command.toLowerCase();
+    const isAdditionQuery = /\b(add|fill|expand|introduce|more|insert)\b/i.test(commandLower);
+    const hasStrongRemovalVerb = /\b(remove|delete|clean|strip|purge)\b/i.test(commandLower);
+    
+    assert.strictEqual(isAdditionQuery, true);
+    assert.strictEqual(hasStrongRemovalVerb, false);
+  });
+
+  await t.test("should treat 'add rap song no drake no jdilla' as purely additive (removals disabled)", () => {
+    const command = "add rap song no drake no jdilla";
+    const commandLower = command.toLowerCase();
+    const isAdditionQuery = /\b(add|fill|expand|introduce|more|insert)\b/i.test(commandLower);
+    const hasStrongRemovalVerb = /\b(remove|delete|clean|strip|purge)\b/i.test(commandLower);
+    
+    assert.strictEqual(isAdditionQuery, true);
+    assert.strictEqual(hasStrongRemovalVerb, false);
   });
 
   await t.test("should identify hybrid modification query as removal query", () => {
     const command = "remove pop and add lofi";
-    const isRemovalQuery = /(remove|delete|clean|no|only|strip|keep|refine|filter|purge)/i.test(command);
-    const isAdditionQuery = /(add|fill|expand|introduce|more|insert)/i.test(command);
+    const commandLower = command.toLowerCase();
+    const isAdditionQuery = /\b(add|fill|expand|introduce|more|insert)\b/i.test(commandLower);
+    const hasStrongRemovalVerb = /\b(remove|delete|clean|strip|purge)\b/i.test(commandLower);
     
     assert.strictEqual(isAdditionQuery, true);
-    assert.strictEqual(isRemovalQuery, true);
+    assert.strictEqual(hasStrongRemovalVerb, true);
   });
 
   await t.test("should identify pure removal query as removal only", () => {
     const command = "remove non-lofi tracks";
-    const isRemovalQuery = /(remove|delete|clean|no|only|strip|keep|refine|filter|purge)/i.test(command);
-    const isAdditionQuery = /(add|fill|expand|introduce|more|insert)/i.test(command);
+    const commandLower = command.toLowerCase();
+    const isAdditionQuery = /\b(add|fill|expand|introduce|more|insert)\b/i.test(commandLower);
+    const hasStrongRemovalVerb = /\b(remove|delete|clean|strip|purge)\b/i.test(commandLower);
     
     assert.strictEqual(isAdditionQuery, false);
-    assert.strictEqual(isRemovalQuery, true);
+    assert.strictEqual(hasStrongRemovalVerb, true);
   });
 
   await t.test("should classify Kudasaibeats - Attached as lofi/instrumental using local dictionary", async () => {
@@ -431,5 +454,69 @@ test("Curator Nuances & Edge Cases", async (t) => {
     } finally {
       process.env.GROQ_API_KEY = oldKey;
     }
+  });
+
+  await t.test("should parse hybrid addition prompts correctly", () => {
+    const p1 = "Chill lofi hip-hop beats for coding and 1 rap song";
+    const h1 = parseHybridAddition(p1);
+    assert.ok(h1);
+    assert.strictEqual(h1.count, 1);
+    assert.strictEqual(h1.genre, "rap");
+
+    const p2 = "lofi study beats with 2 pop tracks";
+    const h2 = parseHybridAddition(p2);
+    assert.ok(h2);
+    assert.strictEqual(h2.count, 2);
+    assert.strictEqual(h2.genre, "pop");
+  });
+
+  await t.test("should select hybrid track mixes correctly", () => {
+    const candidateTracks: MappedTrack[] = [
+      {
+        id: "lofi_1",
+        name: "Quiet Beat 1",
+        artist: "Lofi Artist",
+        artist_ids: [],
+        url: "",
+        imageUrl: "",
+        previewUrl: "https://p.scdn.co/mp3-preview/lofi_1",
+        popularity: 30,
+        artist_genres: ["lofi", "beats", "instrumental"],
+      },
+      {
+        id: "rap_1",
+        name: "Rap Track 1",
+        artist: "Rap Artist",
+        artist_ids: [],
+        url: "",
+        imageUrl: "",
+        previewUrl: "https://p.scdn.co/mp3-preview/rap_1",
+        popularity: 80,
+        artist_genres: ["hip hop", "rap", "vocals"],
+      },
+      {
+        id: "rap_2",
+        name: "Rap Track 2",
+        artist: "Another Rap Artist",
+        artist_ids: [],
+        url: "",
+        imageUrl: "",
+        previewUrl: "https://p.scdn.co/mp3-preview/rap_2",
+        popularity: 75,
+        artist_genres: ["hip hop", "rap", "vocals"],
+      },
+    ];
+
+    const result = chooseTopTracks(
+      candidateTracks,
+      ["rap", "vocals", "pop"],
+      "Chill lofi hip-hop beats for coding and 1 rap song",
+      3
+    );
+
+    const ids = result.tracks.map(t => t.id);
+    assert.strictEqual(ids.includes("rap_1"), true);
+    assert.strictEqual(ids.includes("lofi_1"), true);
+    assert.strictEqual(ids.includes("rap_2"), false);
   });
 });

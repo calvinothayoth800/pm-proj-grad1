@@ -120,25 +120,7 @@ async function runPromptSweep() {
   
   const token = await getSpotifyToken();
   const samplePrompts = [
-    // 1. Positive Semantics
-    "chill house for running",
-    // 2. Negative Semantics
-    "spacious ambient for study no vocals",
-    // 3. Hybrid / Addition / Exclusions
     "Chill lofi hip-hop beats for coding and 1 rap song",
-    // 4. Slang / Typos
-    "lofy beatzzz with no pop music",
-    // 5. Contradictory / Edge case
-    "calm techno workout music",
-    // 6. Regional Artist Hints
-    "bollywood driving neon city",
-    // 7. Vocal Explicit Exclusions
-    "lofi beats study don't play singing vocals",
-    // 8. Custom target artist
-    "play a song by Norah Jones",
-    // 9. Mainstream Exclusions
-    "lofi coding beats exclude Drake Taylor Swift",
-    // 10. Synthwave Vibe
     "Late night driving through a neon city"
   ];
 

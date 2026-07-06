@@ -200,10 +200,14 @@ export async function POST(req: Request) {
 
     // Apply deterministic hybrid semantic/genre filter to catch anything the LLM misses
     const commandLower = command.toLowerCase();
-    const isLofiRefine = /(remove non[ -]?lo[ -]?fi|keep only lo[ -]?fi|only lo[ -]?fi|remove non[ -]study|remove non[ -]chill)/.test(commandLower);
-    const isRapRemove = /(remove rap|no rap|instrumental only|only instrumental|remove vocals|no vocals|no singing)/.test(commandLower);
-    const isPopRemove = /(remove pop|no pop)/.test(commandLower);
-    const isEdmRemove = /(remove edm|no edm|remove electronic)/.test(commandLower);
+    const isAdditionQuery = /\b(add|fill|expand|introduce|more|insert)\b/i.test(commandLower);
+    const hasStrongRemovalVerb = /\b(remove|delete|clean|strip|purge)\b/i.test(commandLower);
+    const shouldRunRemovals = !isAdditionQuery || hasStrongRemovalVerb;
+
+    const isLofiRefine = shouldRunRemovals && /\b(remove non[ -]?lo[ -]?fi|keep only lo[ -]?fi|only lo[ -]?fi|remove non[ -]study|remove non[ -]chill)\b/i.test(commandLower);
+    const isRapRemove = shouldRunRemovals && /\b(remove rap|no rap|instrumental only|only instrumental|remove vocals|no vocals|no singing)\b/i.test(commandLower);
+    const isPopRemove = shouldRunRemovals && /\b(remove pop|no pop)\b/i.test(commandLower);
+    const isEdmRemove = shouldRunRemovals && /\b(remove edm|no edm|remove electronic)\b/i.test(commandLower);
 
     const extraRemoveIds = new Set<string>();
     const protectedIds = new Set<string>();
@@ -283,11 +287,8 @@ export async function POST(req: Request) {
     const maxDeletions = Math.max(0, Math.floor(normalizedTracks.length * 0.8));
     plan.remove_track_ids = finalRemovesArray.slice(0, maxDeletions);
 
-    // Enforce addition code guard: if purely additive command, empty all removals!
-    const isRemovalQuery = /(remove|delete|clean|no|only|strip|keep|refine|filter|purge)/i.test(command);
-    const isAdditionQuery = /(add|fill|expand|introduce|more|insert)/i.test(command);
-
-    if (isAdditionQuery && !isRemovalQuery) {
+    // Enforce addition code guard: if purely additive command (no strong removal verb), empty all removals!
+    if (isAdditionQuery && !hasStrongRemovalVerb) {
       plan.remove_track_ids = [];
       plan.explanation = `Adding ${plan.add_count || 1} song(s) matching "${plan.add_prompt || command}".`;
     }

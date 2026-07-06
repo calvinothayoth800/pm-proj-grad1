@@ -300,7 +300,7 @@ export async function fetchArtistGenres(artistIds: string[], token: string): Pro
   try {
     const responses = await Promise.all(
       batches.map(async (batch) => {
-        const res = await fetch(`https://api.spotify.com/v1/artists?ids=${batch.join(",")}`, {
+        const res = await fetchWithRetry(`https://api.spotify.com/v1/artists?ids=${batch.join(",")}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -384,8 +384,14 @@ export async function fetchWithRetry(
     const res = await fetch(url, options);
     if (res.ok) return res;
     if (res.status === 429 && i < retries - 1) {
-      console.warn(`Groq 429 rate limit hit. Retrying in ${delay}ms...`);
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      let hostname = "API";
+      try {
+        hostname = new URL(url).hostname;
+      } catch {}
+      const jitter = Math.floor(Math.random() * 1500);
+      const totalDelay = delay + jitter;
+      console.warn(`[${hostname}] Rate limit hit (429). Retrying in ${totalDelay}ms (delay: ${delay}ms, jitter: ${jitter}ms)...`);
+      await new Promise((resolve) => setTimeout(resolve, totalDelay));
       delay *= 2;
       continue;
     }
@@ -599,12 +605,98 @@ function scoreTrackForSelection(track: MappedTrack) {
   return score;
 }
 
+export interface HybridAddition {
+  count: number;
+  genre: string;
+}
+
+export function parseHybridAddition(prompt: string): HybridAddition | null {
+  const lower = prompt.toLowerCase();
+  const match = lower.match(
+    /(?:add|and|with|plus|but)\s+(?:exactly\s+)?(\d+|one|two|three|a|some)\s+(\w+)\s+(?:song|track|beat|music|tune)/
+  );
+  if (!match) return null;
+  const countStr = match[1];
+  const genre = match[2];
+  let count = 1;
+  if (countStr === "a" || countStr === "one" || countStr === "1") {
+    count = 1;
+  } else if (countStr === "two" || countStr === "2") {
+    count = 2;
+  } else if (countStr === "three" || countStr === "3") {
+    count = 3;
+  } else if (countStr === "some") {
+    count = 2;
+  } else {
+    const parsed = parseInt(countStr, 10);
+    if (!isNaN(parsed)) {
+      count = parsed;
+    }
+  }
+  return { count, genre };
+}
+
 export function chooseTopTracks(
   tracks: MappedTrack[],
   excludeKeywords: string[],
   prompt = "",
   preferredCount = 5
 ) {
+  const hybrid = parseHybridAddition(prompt);
+  if (hybrid && tracks.length > 0) {
+    const { count: additionCount, genre: additionGenre } = hybrid;
+    const mainPool = filterTracks(tracks, excludeKeywords, prompt, {
+      checkPopularity: true,
+      excludeKeywordsOverride: excludeKeywords,
+    });
+    let additionExcludes = [...excludeKeywords];
+    if (additionGenre === "rap" || additionGenre === "hiphop" || additionGenre === "hip-hop") {
+      additionExcludes = additionExcludes.filter(
+        k => !["rap", "hip hop", "hiphop", "vocal", "vocals", "singing", "singer"].includes(k.toLowerCase())
+      );
+    } else if (additionGenre === "pop") {
+      additionExcludes = additionExcludes.filter(
+        k => !["pop", "vocal", "vocals", "singing", "singer"].includes(k.toLowerCase())
+      );
+    } else if (additionGenre === "vocal" || additionGenre === "vocals" || additionGenre === "singing") {
+      additionExcludes = additionExcludes.filter(
+        k => !["vocal", "vocals", "singing", "singer"].includes(k.toLowerCase())
+      );
+    } else if (["edm", "electronic", "house", "techno", "dance"].includes(additionGenre)) {
+      additionExcludes = additionExcludes.filter(
+        k => !["edm", "electronic", "house", "techno", "dance", "vocal", "vocals", "singing", "singer"].includes(k.toLowerCase())
+      );
+    }
+    const additionPool = filterTracks(tracks, additionExcludes, prompt, {
+      checkPopularity: true,
+      excludeKeywordsOverride: additionExcludes,
+    }).filter(track => {
+      const haystack = `${track.name} ${track.artist} ${(track.artist_genres || []).join(" ")}`.toLowerCase();
+      if (additionGenre === "rap") {
+        return haystack.includes("rap") || haystack.includes("hip hop") || haystack.includes("hiphop");
+      }
+      return haystack.includes(additionGenre);
+    });
+    const rankedAddition = [...additionPool].sort(
+      (a, b) => scoreTrackForSelection(b) - scoreTrackForSelection(a)
+    );
+    const chosenAddition = rankedAddition.slice(0, additionCount);
+    const rankedMain = [...mainPool].sort(
+      (a, b) => scoreTrackForSelection(b) - scoreTrackForSelection(a)
+    );
+    const chosenAdditionIds = new Set(chosenAddition.map(t => t.id));
+    const filteredRankedMain = rankedMain.filter(t => !chosenAdditionIds.has(t.id));
+    const chosenMain = filteredRankedMain.slice(0, Math.max(0, preferredCount - chosenAddition.length));
+    const merged = [...chosenAddition, ...chosenMain];
+    if (merged.length > 0) {
+      return {
+        tracks: merged,
+        warning: false,
+        fallbackTier: null,
+      };
+    }
+  }
+
   let filteredTracks = filterTracks(tracks, excludeKeywords, prompt, {
     checkPopularity: true,
     excludeKeywordsOverride: excludeKeywords,
@@ -986,7 +1078,7 @@ export async function fetchSpotifyRecommendations(
     target_danceability: String(agentConfig.target_danceability),
   });
 
-  const response = await fetch(
+  const response = await fetchWithRetry(
     `https://api.spotify.com/v1/recommendations?${params.toString()}`,
     {
       headers: {
@@ -1014,41 +1106,48 @@ export async function searchSpotifySemantic(
   prompt = ""
 ) {
   const queries = buildSemanticSearchQueries(agentConfig, prompt);
-  const requests = queries.map(async (query) => {
-    const params = new URLSearchParams({
-      q: query,
-      type: "track",
-      limit: "5",
-      market: "US",
-      offset: "0",
-    });
+  const results: MappedTrack[][] = [];
 
-    const response = await fetch(
-      `https://api.spotify.com/v1/search?${params.toString()}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
+  for (const query of queries) {
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        type: "track",
+        limit: "5",
+        market: "US",
+        offset: "0",
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(
-        `Spotify semantic search failed for "${query}": ${response.status} ${errorText}`
+      const response = await fetchWithRetry(
+        `https://api.spotify.com/v1/search?${params.toString()}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
-      return [];
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `Spotify semantic search failed for "${query}": ${response.status} ${errorText}`
+        );
+        continue;
+      }
+
+      const data = await response.json();
+      const tracks = ((data.tracks?.items || []) as SpotifyTrack[])
+        .map((track, idx) => mapTrack(track, idx))
+        .filter((track): track is MappedTrack => Boolean(track))
+        .sort((a, b) => b.popularity - a.popularity)
+        .slice(0, 12);
+
+      results.push(tracks);
+    } catch (err: any) {
+      console.error(`Error searching Spotify for "${query}":`, err.message);
     }
+  }
 
-    const data = await response.json();
-    return ((data.tracks?.items || []) as SpotifyTrack[])
-      .map((track, idx) => mapTrack(track, idx))
-      .filter((track): track is MappedTrack => Boolean(track))
-      .sort((a, b) => b.popularity - a.popularity)
-      .slice(0, 12);
-  });
-
-  const results = await Promise.all(requests);
   const interleavedTracks: MappedTrack[] = [];
   const maxResultLength = Math.max(...results.map((tracks) => tracks.length), 0);
 
