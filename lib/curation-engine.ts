@@ -1084,7 +1084,8 @@ export async function fetchSpotifyRecommendations(
       headers: {
         Authorization: `Bearer ${token}`,
       },
-    }
+    },
+    1 // Fail fast on recommendations to immediately trigger search fallback
   );
 
   if (!response.ok) {
@@ -1190,18 +1191,15 @@ export async function lookupSpotifyEmbedPreview(trackId: string): Promise<string
 export async function enrichTracksWithSpotifyPreviews(
   tracks: MappedTrack[]
 ): Promise<MappedTrack[]> {
-  const enriched: MappedTrack[] = [];
-
-  for (const track of tracks) {
+  const promises = tracks.map(async (track) => {
     if (track.previewUrl) {
-      enriched.push(track);
-      continue;
+      return track;
     }
 
     const previewUrl = await lookupSpotifyEmbedPreview(track.id);
     const safePreview = isValidSpotifyPreviewUrl(previewUrl) ? previewUrl : "";
-    enriched.push(safePreview ? { ...track, previewUrl: safePreview } : track);
-  }
+    return safePreview ? { ...track, previewUrl: safePreview } : track;
+  });
 
-  return enriched;
+  return Promise.all(promises);
 }
